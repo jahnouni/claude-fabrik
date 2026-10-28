@@ -7,12 +7,16 @@ Transkripte (für die Infokarte einer Sitzung und den Projektnamen von Sitzungen
 im Benutzer- oder Temp-Ordner; dafür wird bei geschriebenen Dateien auch nach
 einem .git-Ordner und im Lager nach status.json geschaut). Einzige schreibende Aktion: Prüfer in den Einstellungen (einstellungen.json)
 an- oder abschalten (POST /api/rolle, nur vom eigenen Ursprung).
+
+Nach außen geht nur die Update-Abfrage (neuestes Release auf GitHub), im
+Hintergrund und höchstens alle 6 Stunden; sie pflegt update.json im Datenordner.
 """
 import argparse
 import json
 import os
 import re
 import signal
+import sys
 import socketserver
 import tempfile
 import threading
@@ -22,6 +26,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 HIER = Path(__file__).resolve().parent
+sys.path.insert(0, str(HIER))
+import update  # noqa: E402 - liegt neben dieser Datei
 # Lager und Datenordner gibt das Werkzeug fabrik beim Start mit.
 LAGER = Path(os.environ.get("FABRIK_LAGER", Path.home() / "Claude-Fabrik"))
 DATEN = Path(os.environ.get("FABRIK_DATEN", Path.home() / ".claude/fabrik"))
@@ -38,6 +44,8 @@ DATEIEN = {
     "/halle.js": ("halle.js", "text/javascript; charset=utf-8"),
 }
 RUHT_AB_MIN = 60
+# Wie oft der Hintergrund nachsieht; ob wirklich im Netz gefragt wird, entscheidet der 6-Stunden-Zwischenspeicher.
+UPDATE_TAKT_S = 30 * 60
 ZULETZT_TAGE = 7
 BENUTZERORDNER = "~ (Benutzerordner)"
 # Ordner, in denen Sitzungen ohne eigenes Projekt laufen (Temp-Ordner).
@@ -476,6 +484,21 @@ def auftrag_details(aid):
     }
 
 
+def update_stand():
+    """Update-Stand für die Seite. Liest nur den Zwischenspeicher, wartet also nie auf das Netz."""
+    return update.stand(DATEN, nur_cache=True)
+
+
+def update_im_hintergrund():
+    """Hält update.json aktuell, ohne die Halle aufzuhalten."""
+    while True:
+        try:
+            update.stand(DATEN)
+        except Exception:  # noqa: BLE001 - ohne Netz bleibt der Hinweis einfach aus
+            pass
+        time.sleep(UPDATE_TAKT_S)
+
+
 class Halle(BaseHTTPRequestHandler):
     server_version = "Fabrikhalle"
 
@@ -511,6 +534,8 @@ class Halle(BaseHTTPRequestHandler):
             return self.json({"auftraege": auftraege(), "sitzungen": sitzungen(), "wach": wach_aktiv(),
                               "rollen_aus": rollen_aus(), "schaltbar": SCHALTBAR,
                               "lager": str(LAGER), "zeit": datetime.now(timezone.utc).isoformat()})
+        if pfad == "/api/update":
+            return self.json(update_stand())
         m = re.match(r"^/api/auftrag/([^/]+)$", pfad)
         if m and ID_MUSTER.match(m.group(1)):
             d = auftrag_details(m.group(1))
@@ -569,6 +594,7 @@ def main():
     if a.pid:
         Path(a.pid).write_text(str(os.getpid()))
     signal.signal(signal.SIGTERM, beenden)
+    threading.Thread(target=update_im_hintergrund, name="update", daemon=True).start()
     print(f"Fabrikhalle läuft auf http://127.0.0.1:{a.port}/ (Lager: {LAGER})", flush=True)
     try:
         server.serve_forever()

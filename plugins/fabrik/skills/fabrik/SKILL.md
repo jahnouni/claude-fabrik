@@ -18,6 +18,8 @@ Die Arbeiter gehören zum Plugin und heißen deshalb `fabrik:<name>`, also z. B.
 
 Zuerst: `fabrik einstellung`. Steht dort `"eingerichtet": false`, führe **Abschnitt E** aus und mach danach mit dem Argument weiter.
 
+Danach: `fabrik update`. Steht in der Ausgabe `"update_verfuegbar": true`, gib genau eine Zeile aus: „Update <neueste> verfügbar (installiert <installiert>): `<befehl>`, danach Claude Code neu starten.“ Sonst sagst du dazu nichts. Der Befehl bricht nie ab; ohne Netz meldet er einfach kein Update. Abschalten lässt sich der Hinweis mit `fabrik einstellung update_hinweis aus`.
+
 - **`einrichten`:** nur Abschnitt E ausführen.
 - **leer:** `fabrik liste` ausgeben und fragen, ob ein Auftrag fortgesetzt oder ein neuer begonnen werden soll.
 - **`halle`:** nur Schritt H ausführen.

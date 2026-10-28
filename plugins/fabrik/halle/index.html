@@ -12,6 +12,13 @@
   <p class="verbindung" id="verbindung" hidden>Keine Verbindung zum Lager … neuer Versuch läuft</p>
 </main>
 
+<div class="update-banner" id="update" role="status" aria-live="polite" hidden>
+  <p class="update-text"><strong id="update-titel"></strong> <span id="update-installiert"></span></p>
+  <button class="kopieren klein update-befehl" id="update-befehl" type="button"></button>
+  <p class="update-nachsatz" id="update-nachsatz"></p>
+  <button class="update-zu" id="update-zu" type="button" aria-label="Update-Hinweis schließen">×</button>
+</div>
+
 <div class="tooltip" id="tooltip" role="tooltip" hidden></div>
 
 <aside class="karte" id="karte" role="dialog" aria-modal="true" aria-labelledby="karte-titel" inert>

@@ -68,6 +68,8 @@ fabrik einstellung git_email "max@example.org"
 fabrik einstellung autor "Max Muster"
 fabrik rolle designer aus              # Prüfer ab- oder anschalten (auch per Klick in der Halle)
 fabrik autostart an|aus                # Anmeldedienst (macOS)
+fabrik einstellung update_hinweis aus  # Hinweis auf neue Versionen abschalten
+fabrik update                          # installierte und neueste Version (JSON)
 ```
 
 Einstellungen und Laufzeitdateien liegen in `~/.claude/fabrik/` (änderbar über die Umgebungsvariable `FABRIK_DATEN`), also außerhalb des Plugins. Updates lassen sie unberührt. Das Lager lässt sich auch mit `FABRIK_LAGER` überschreiben.
@@ -76,11 +78,15 @@ Die Arbeiter laufen mit diesen Modellen: Spec, Builder, Sicherheit und Approver 
 
 ## Updates
 
-Neue Versionen holen:
+Die Fabrik sieht höchstens alle 6 Stunden auf GitHub nach, ob es ein neueres Release gibt. Wenn ja, meldet `/fabrik` beim Start „Update <Version> verfügbar“, und die Halle zeigt oben rechts ein Banner mit dem Befehl zum Kopieren. Ohne Netz erscheint einfach nichts. Den Stand zeigt auch `fabrik update` (JSON), abschalten lässt sich der Hinweis mit `fabrik einstellung update_hinweis aus`.
+
+Neue Versionen holen, im Terminal:
 
 ```
-/plugin marketplace update claude-fabrik
+claude plugin marketplace update claude-fabrik && claude plugin update fabrik@claude-fabrik
 ```
+
+Danach Claude Code neu starten. In Claude Code geht auch `/plugin marketplace update claude-fabrik`.
 
 Automatisch geht es so: `/plugin` öffnen, unter **Marketplaces** `claude-fabrik` wählen und die automatische Aktualisierung einschalten. Claude Code prüft dann beim Start auf neue Versionen.
 
@@ -111,7 +117,7 @@ Zum Ausprobieren ohne Installation: `claude --plugin-dir ./plugins/fabrik`
 python3 -m unittest discover -s tests
 ```
 
-Die Tests prüfen, wie die Halle Sitzungen im Benutzer- oder Temp-Ordner benennt. Sie brauchen nur Python 3.9 oder neuer.
+Die Tests prüfen, wie die Halle Sitzungen im Benutzer- oder Temp-Ordner benennt, und den Update-Hinweis (Versionsvergleich, Zwischenspeicher, Fehlerfall ohne Netz, Abschalten). Sie nutzen kein Netz und brauchen nur Python 3.9 oder neuer.
 
 ## Lizenz
 

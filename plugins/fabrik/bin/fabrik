@@ -32,7 +32,10 @@ EINSTELLBAR = {
     "git_name": "Git-Name für Commits in Auftrags-Repos (leer: globale Git-Einstellung)",
     "git_email": "Git-E-Mail für Commits in Auftrags-Repos (leer: globale Git-Einstellung)",
     "autor": "Name, den Arbeiter eintragen, wenn ein Autor nötig ist (leer: keinen eintragen)",
+    "update_hinweis": "Hinweis auf neue Versionen: an (Standard) oder aus",
 }
+# Einstellungen mit fester Auswahl und ihr Standardwert.
+AUSWAHL = {"update_hinweis": (("an", "aus"), "an")}
 
 ROLLEN = ["spec", "builder", "sicherheit", "designer", "inspector", "bediener", "approver"]
 # Nur Prüfer lassen sich abschalten; Spec, Builder und Approver braucht jeder Auftrag.
@@ -179,7 +182,7 @@ def cmd_einstellung(a):
     """Zeigt die Einstellungen (JSON) oder setzt eine davon."""
     d = lies_einstellungen()
     if not a.name:
-        stand = {k: d.get(k, "") for k in EINSTELLBAR}
+        stand = {k: d.get(k, AUSWAHL[k][1] if k in AUSWAHL else "") for k in EINSTELLBAR}
         stand["lager"] = str(LAGER)
         stand["eingerichtet"] = bool(d.get("eingerichtet"))
         stand["deaktiviert"] = d["deaktiviert"]
@@ -195,9 +198,15 @@ def cmd_einstellung(a):
     if a.name not in EINSTELLBAR:
         fehler(f"Unbekannte Einstellung '{a.name}'. Möglich: {', '.join(EINSTELLBAR)}, eingerichtet")
     if a.wert is None:
-        print(d.get(a.name, "") if a.name != "lager" else LAGER)
+        standard = AUSWAHL[a.name][1] if a.name in AUSWAHL else ""
+        print(d.get(a.name, standard) if a.name != "lager" else LAGER)
         return
     wert_neu = a.wert.strip()
+    if a.name in AUSWAHL:
+        werte, standard = AUSWAHL[a.name]
+        wert_neu = wert_neu.lower() or standard
+        if wert_neu not in werte:
+            fehler(f"{a.name} muss {' oder '.join(werte)} sein")
     if a.name == "lager" and wert_neu:
         wert_neu = str(Path(wert_neu).expanduser().resolve())
     if wert_neu:
@@ -206,6 +215,17 @@ def cmd_einstellung(a):
         d.pop(a.name, None)
     schreibe_einstellungen(d)
     print(f"{a.name}: {wert_neu or '(leer)'}")
+
+
+def cmd_update(a):
+    """Zeigt installierte und neueste Version (JSON). Fragt höchstens alle 6 Stunden bei GitHub nach."""
+    try:
+        sys.path.insert(0, str(WERK / "halle"))
+        import update
+        stand = update.stand(DATEN)
+    except Exception:  # noqa: BLE001 - der Hinweis darf `/fabrik` nie aufhalten
+        stand = {"installiert": None, "neueste": None, "update_verfuegbar": False, "befehl": ""}
+    print(json.dumps(stand, ensure_ascii=False))
 
 
 def cmd_neu(a):
@@ -667,6 +687,9 @@ def main():
 
     x = u.add_parser("einstellung", help="Einstellungen zeigen oder setzen")
     x.add_argument("name", nargs="?"); x.add_argument("wert", nargs="?"); x.set_defaults(f=cmd_einstellung)
+
+    x = u.add_parser("update", help="Nach einer neuen Version des Plugins sehen (JSON)")
+    x.set_defaults(f=cmd_update)
 
     x = u.add_parser("rollen", help="Aktive und abgeschaltete Prüfer (JSON)"); x.set_defaults(f=cmd_rollen)
 

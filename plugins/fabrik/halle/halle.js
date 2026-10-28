@@ -927,6 +927,7 @@ async function oeffneKarte(id) {
   karte.inert = false;
   karte.classList.add("offen");
   $("halle-rahmen").inert = true;
+  $("update").inert = true;
   $("schleier").hidden = false;
   $("karte-zu").focus();
 }
@@ -938,6 +939,7 @@ function schliesseKarte() {
   karte.classList.remove("offen");
   karte.inert = true;
   $("halle-rahmen").inert = false;
+  $("update").inert = false;
   $("schleier").hidden = true;
   const ziel = findeAusloeser(zustand.ausloeser);
   zustand.ausloeser = null;
@@ -982,6 +984,44 @@ async function abfragen() {
   }
 }
 
+// --- Update-Hinweis ----------------------------------------------------------
+// Der Server liefert nur den zwischengespeicherten Stand; die Abfrage bei GitHub läuft dort im Hintergrund.
+
+const UPDATE_TAKT_MS = 30 * 60 * 1000;
+
+function updateGeschlossen(version) {
+  try { return localStorage.getItem("halle-update-zu") === version; } catch { return false; }
+}
+
+async function pruefeUpdate() {
+  let d;
+  try {
+    const r = await fetch("/api/update", { cache: "no-store" });
+    if (!r.ok) return;
+    d = await r.json();
+  } catch { return; }
+  const banner = $("update");
+  if (!d || !d.update_verfuegbar || !d.neueste || updateGeschlossen(d.neueste)) {
+    banner.hidden = true;
+    return;
+  }
+  banner.dataset.version = d.neueste;
+  $("update-titel").textContent = `Update ${d.neueste} verfügbar`;
+  $("update-installiert").textContent = d.installiert ? `(installiert ${d.installiert})` : "";
+  const knopf = $("update-befehl");
+  knopf.dataset.befehl = d.befehl;
+  knopf.dataset.beschriftung = d.befehl;
+  if (!knopf.classList.contains("ok")) knopf.textContent = `${d.befehl}   ⧉ kopieren`;
+  $("update-nachsatz").textContent = d.hinweis ? `Im Terminal ausführen, ${d.hinweis}.` : "";
+  banner.hidden = false;
+}
+
+function schliesseUpdate() {
+  const banner = $("update");
+  try { localStorage.setItem("halle-update-zu", banner.dataset.version || ""); } catch {}
+  banner.hidden = true;
+}
+
 function setzeWerkstatt(zu) {
   $("werkbaenke").style.display = zu ? "none" : "";
   $("werkstatt-kopf").setAttribute("aria-expanded", String(!zu));
@@ -1008,6 +1048,8 @@ $("karte-inhalt").addEventListener("click", (e) => {
 $("karte-zu").addEventListener("click", schliesseKarte);
 $("schleier").addEventListener("click", schliesseKarte);
 $("karte-kopieren").addEventListener("click", kopiere);
+$("update-befehl").addEventListener("click", kopiere);
+$("update-zu").addEventListener("click", schliesseUpdate);
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") schliesseKarte(); });
 window.addEventListener("hashchange", () => {
   const id = location.hash.slice(1);
@@ -1018,3 +1060,5 @@ abfragen().then(() => {
   if (/^F-\d{4}$/.test(id)) oeffneKarte(id);
 });
 setInterval(abfragen, 2000);
+pruefeUpdate();
+setInterval(pruefeUpdate, UPDATE_TAKT_MS);

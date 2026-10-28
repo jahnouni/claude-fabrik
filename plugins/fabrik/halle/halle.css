@@ -320,3 +320,41 @@ summary { padding: 9px 12px; cursor: pointer; font-weight: 600; min-height: 44px
 .arbeiter.aus .aus-schild { opacity: 1; }
 .arbeiter.aus .blase, .arbeiter.aus .pause-schild { opacity: 0; }
 .arbeiter.aus .arm, .arbeiter.aus .koerper { animation: none; }
+
+/* --- Update-Hinweis ------------------------------------------------------ */
+.update-banner {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  z-index: 15;
+  width: min(460px, calc(100vw - 24px));
+  padding: 12px 48px 10px 16px;
+  border: 1px solid #4a5369;
+  border-radius: 10px;
+  background: #262d3c;
+  color: var(--kreide);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, .35);
+  font-size: 14px;
+}
+.update-banner[hidden] { display: none; }
+.update-text { margin: 0 0 4px; }
+.update-text strong { color: var(--gelb); }
+.update-text span, .update-nachsatz { color: #c3c9d6; }
+.update-nachsatz { margin: 2px 0 0; font-size: 13px; }
+.update-befehl { margin: 6px 0; }
+.update-befehl:focus-visible, .update-zu:focus-visible { outline: 3px solid var(--gelb); outline-offset: 2px; }
+.update-zu {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #c3c9d6;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+.update-zu:hover, .update-zu:focus-visible { background: #3a4255; color: #fff; }
