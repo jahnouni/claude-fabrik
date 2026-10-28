@@ -7,14 +7,14 @@
 <link rel="stylesheet" href="halle.css">
 </head>
 <body>
-<main class="halle-rahmen">
+<main class="halle-rahmen" id="halle-rahmen">
   <svg id="halle" viewBox="0 0 1600 960" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Fabrikhalle mit allen Aufträgen"></svg>
   <p class="verbindung" id="verbindung" hidden>Keine Verbindung zum Lager … neuer Versuch läuft</p>
 </main>
 
 <div class="tooltip" id="tooltip" role="tooltip" hidden></div>
 
-<aside class="karte" id="karte" aria-hidden="true" aria-labelledby="karte-titel">
+<aside class="karte" id="karte" role="dialog" aria-modal="true" aria-labelledby="karte-titel" inert>
   <div class="karte-kopf">
     <div>
       <div class="karte-id" id="karte-id"></div>

@@ -3,7 +3,9 @@
 
 Bindet nur an 127.0.0.1 und liest ausschließlich: Lager, Sitzungsdateien
 und unter ~/.claude/projects die Projektordner sowie das Ende einzelner
-Transkripte (für die Infokarte einer Sitzung). Einzige schreibende Aktion: Prüfer in den Einstellungen (einstellungen.json)
+Transkripte (für die Infokarte einer Sitzung und den Projektnamen von Sitzungen
+im Benutzer- oder Temp-Ordner; dafür wird bei geschriebenen Dateien auch nach
+einem .git-Ordner und im Lager nach status.json geschaut). Einzige schreibende Aktion: Prüfer in den Einstellungen (einstellungen.json)
 an- oder abschalten (POST /api/rolle, nur vom eigenen Ursprung).
 """
 import argparse
@@ -12,6 +14,8 @@ import os
 import re
 import signal
 import socketserver
+import tempfile
+import threading
 import time
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -35,6 +39,16 @@ DATEIEN = {
 }
 RUHT_AB_MIN = 60
 ZULETZT_TAGE = 7
+BENUTZERORDNER = "~ (Benutzerordner)"
+# Ordner, in denen Sitzungen ohne eigenes Projekt laufen (Temp-Ordner).
+TEMP_ORDNER = [Path(p) for p in ("/tmp", "/private/tmp", "/var/folders", "/private/var/folders")]
+try:
+    TEMP_ORDNER.append(Path(tempfile.gettempdir()).resolve())
+except OSError:
+    pass
+# Projektname je Transkript, gültig solange Größe und mtime gleich bleiben.
+NAMEN_CACHE = {}
+NAMEN_SPERRE = threading.Lock()
 
 
 def lies(pfad, standard=""):
@@ -103,16 +117,146 @@ def lebt(pid):
         return True
 
 
-def anzeigename(cwd):
+def kodiert(pfad):
+    """Ordnername unter ~/.claude/projects: jedes Zeichen außer Buchstaben und Ziffern wird zu '-'."""
+    return re.sub(r"[^A-Za-z0-9]", "-", str(pfad))
+
+
+def liegt_unter(pfad, basis):
+    try:
+        Path(pfad).relative_to(basis)
+        return True
+    except ValueError:
+        return False
+
+
+def ohne_projekt(cwd):
+    """Benutzerordner oder Temp-Ordner: dort sagt der Ordnername nichts über das Projekt."""
+    if not cwd:
+        return False
     p = Path(cwd)
-    if p == Path.home():
-        return "~ (Benutzerordner)"
-    return p.name
+    return p == Path.home() or any(liegt_unter(p, t) for t in TEMP_ORDNER)
+
+
+def ohne_projekt_kodiert(ordnername):
+    """Wie ohne_projekt, aber für die kodierten Ordnernamen unter ~/.claude/projects."""
+    if ordnername == kodiert(Path.home()):
+        return True
+    return any(ordnername == kodiert(t) or ordnername.startswith(kodiert(t) + "-") for t in TEMP_ORDNER)
+
+
+def projekt_von_datei(datei):
+    """Projektname zu einer geschriebenen Datei oder None, wenn sie zu keinem Projekt gehört."""
+    try:
+        p = Path(datei).expanduser()
+    except (TypeError, ValueError):
+        return None
+    if not p.is_absolute():
+        return None
+    home = Path.home()
+    # Dateien in ~/.claude (Gedächtnis, Pläne) und in Temp-Ordnern gehören zu keinem Projekt.
+    if liegt_unter(p, CLAUDE) or any(liegt_unter(p, t) for t in TEMP_ORDNER):
+        return None
+    # 1. Fabrik-Auftrag im Lager: Titel aus status.json
+    if liegt_unter(p, LAGER):
+        teile = p.relative_to(LAGER).parts
+        if len(teile) > 1 and re.match(r"^F-\d{4}-", teile[0]):
+            try:
+                titel = json.loads((LAGER / teile[0] / ".fabrik/status.json").read_text()).get("titel")
+            except (OSError, json.JSONDecodeError, AttributeError):
+                titel = None
+            if isinstance(titel, str) and titel.strip():
+                return titel.strip()
+    # 2. oberster Ordner mit .git (der Benutzerordner selbst zählt nicht)
+    repo = None
+    for ordner in p.parents:
+        if ordner == home or ordner == Path(ordner.anchor):
+            break
+        try:
+            if (ordner / ".git").exists():
+                repo = ordner
+        except OSError:
+            pass
+    if repo is not None:
+        return repo.name
+    # 3. Projektordner unter ~/Documents/Projekte oder ~/Documents
+    for basis in (home / "Documents/Projekte", home / "Documents"):
+        if liegt_unter(p, basis):
+            teile = p.relative_to(basis).parts
+            if len(teile) > 1:
+                return teile[0]
+    return None
+
+
+def projekt_aus_transkript(datei):
+    """Projekt der zuletzt geschriebenen Datei, sonst der Sitzungstitel, sonst None.
+
+    Liest nur das Ende des Transkripts und merkt sich das Ergebnis, solange sich
+    die Datei nicht ändert."""
+    try:
+        st = os.stat(datei)
+    except OSError:
+        return None
+    schluessel = str(datei)
+    marke = (st.st_size, st.st_mtime_ns)
+    with NAMEN_SPERRE:
+        treffer = NAMEN_CACHE.get(schluessel)
+    if treffer and treffer[0] == marke:
+        return treffer[1]
+    dateien, titel = [], None
+    for e in transkript_ende(datei):
+        if e.get("type") == "ai-title" and e.get("aiTitle"):
+            titel = e["aiTitle"]
+        elif e.get("type") == "assistant":
+            inhalt = (e.get("message") or {}).get("content")
+            for b in inhalt if isinstance(inhalt, list) else []:
+                if isinstance(b, dict) and b.get("type") == "tool_use" and b.get("name") in SCHREIB_WERKZEUGE:
+                    pfad = (b.get("input") or {}).get("file_path") or (b.get("input") or {}).get("notebook_path")
+                    if isinstance(pfad, str) and pfad:
+                        dateien.append(pfad)
+    name = None
+    gepruefte = set()
+    for pfad in reversed(dateien):
+        if pfad in gepruefte:
+            continue
+        gepruefte.add(pfad)
+        name = projekt_von_datei(pfad)
+        if name:
+            break
+    if not name and isinstance(titel, str) and titel.strip():
+        name = titel.strip()
+    with NAMEN_SPERRE:
+        if len(NAMEN_CACHE) > 500:
+            NAMEN_CACHE.clear()
+        NAMEN_CACHE[schluessel] = (marke, name)
+    return name
+
+
+def transkript_von(sid, cwd=""):
+    """Pfad zum Transkript einer Sitzung oder None."""
+    if not sid or not SITZUNG_MUSTER.match(sid):
+        return None
+    if cwd:
+        kandidat = CLAUDE / "projects" / kodiert(cwd) / f"{sid}.jsonl"
+        if kandidat.is_file():
+            return kandidat
+    for f in (CLAUDE / "projects").glob(f"*/{sid}.jsonl"):
+        if f.is_file():
+            return f
+    return None
+
+
+def anzeigename(cwd, transkript=None):
+    """Name für die Anzeige und ob er nur ein Platzhalter ist (dann dezent darstellen)."""
+    if ohne_projekt(cwd):
+        name = projekt_aus_transkript(transkript) if transkript else None
+        return (name, False) if name else (BENUTZERORDNER, True)
+    return Path(cwd).name, False
 
 
 def sitzungen():
     """Laufende Claude-Sitzungen und zuletzt genutzte Projektordner."""
-    laufend, gesehen = [], set()
+    laufend, gesehen, laufende_ids = [], set(), set()
     for datei in (CLAUDE / "sessions").glob("*.json"):
         try:
             s = json.loads(datei.read_text())
@@ -122,10 +266,14 @@ def sitzungen():
         if not isinstance(pid, int) or not lebt(pid):
             continue
         cwd = s.get("cwd", "")
+        sid = s.get("sessionId") or ""
         gesehen.add(cwd)
+        laufende_ids.add(sid)
+        projekt, dezent = anzeigename(cwd, transkript_von(sid, cwd) if ohne_projekt(cwd) else None)
         laufend.append({
-            "id": s.get("sessionId") or "",
-            "projekt": anzeigename(cwd),
+            "id": sid,
+            "projekt": projekt,
+            "dezent": dezent,
             "name": s.get("name") or "",
             "cwd": cwd,
             "zustand": "wartet" if s.get("status") == "idle" else "arbeitet",
@@ -136,29 +284,40 @@ def sitzungen():
 
     ruhend = []
     grenze = time.time() - ZULETZT_TAGE * 86400
+    gesehen_kodiert = {kodiert(c) for c in gesehen if c}
+    gesehen_namen = {Path(c).name for c in gesehen if c and not ohne_projekt(c)}
     for ordner in (CLAUDE / "projects").iterdir() if (CLAUDE / "projects").is_dir() else []:
+        sammel = ohne_projekt_kodiert(ordner.name)
         try:
-            neueste = max(ordner.glob("*.jsonl"), key=lambda f: f.stat().st_mtime, default=None)
+            kandidaten = [f for f in ordner.glob("*.jsonl")
+                          if not (sammel and f.stem in laufende_ids)]
+            neueste = max(kandidaten, key=lambda f: f.stat().st_mtime, default=None)
             mtime = neueste.stat().st_mtime if neueste else 0
         except OSError:
             continue
         if mtime < grenze:
             continue
-        # Ordnernamen sind kodierte Pfade (/ → -); nur für die Anzeige zurückübersetzen.
-        name = ordner.name
-        for praefix in (f"{str(Path.home()).replace('/', '-')}-Documents-Projekte-",
-                        f"{str(Path.home()).replace('/', '-')}-Documents-",
-                        f"{str(Path.home()).replace('/', '-')}-"):
-            if name.startswith(praefix):
-                name = name[len(praefix):]
-                break
+        dezent = False
+        if sammel:
+            # Benutzer- oder Temp-Ordner: Name aus der neuesten nicht laufenden Sitzung.
+            name = projekt_aus_transkript(neueste)
+            if not name:
+                name, dezent = BENUTZERORDNER, True
         else:
-            if name == str(Path.home()).replace("/", "-"):
-                name = "~ (Benutzerordner)"
-        if any(anzeigename(c) == name for c in gesehen):
-            continue
+            if ordner.name in gesehen_kodiert:
+                continue
+            # Ordnernamen sind kodierte Pfade (/ → -); nur für die Anzeige zurückübersetzen.
+            name = ordner.name
+            for praefix in (f"{kodiert(Path.home())}-Documents-Projekte-",
+                            f"{kodiert(Path.home())}-Documents-",
+                            f"{kodiert(Path.home())}-"):
+                if name.startswith(praefix):
+                    name = name[len(praefix):]
+                    break
+            if name in gesehen_namen:
+                continue
         ruhend.append({"id": neueste.stem if SITZUNG_MUSTER.match(neueste.stem) else "",
-                       "projekt": name, "name": "", "cwd": "", "zustand": "ruht",
+                       "projekt": name, "dezent": dezent, "name": "", "cwd": "", "zustand": "ruht",
                        "fabrik": False, "seit": int(mtime * 1000)})
     ruhend.sort(key=lambda x: -x["seit"])
     return laufend + ruhend
@@ -241,9 +400,11 @@ def sitzung_details(sid):
     if laufend:
         cwd = laufend.get("cwd") or cwd
     zustand = "ruht" if not laufend else ("wartet" if laufend.get("status") == "idle" else "arbeitet")
+    projekt, dezent = anzeigename(cwd, treffer[0] if treffer else None) if cwd else ("", False)
     return {
         "id": sid,
-        "projekt": anzeigename(cwd) if cwd else "",
+        "projekt": projekt,
+        "dezent": dezent,
         "name": (laufend or {}).get("name") or "",
         "titel": titel,
         "cwd": cwd,

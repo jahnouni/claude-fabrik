@@ -36,6 +36,7 @@ const zustand = {
   filter: null,
   auftraege: [],
   offeneKarte: null,
+  ausloeser: null,       // Element, das die Infokarte geöffnet hat
   rollenAus: [],
 };
 
@@ -172,6 +173,7 @@ function zeichneSzene() {
 
   <!-- Werkstatt -->
   <g id="werkstatt-kopf" class="werkstatt-kopf" tabindex="0" role="button" aria-controls="werkbaenke" aria-expanded="true">
+    <rect x="30" y="764" width="620" height="58" fill="transparent"/>
     <rect x="30" y="782" width="620" height="28" rx="6" class="werkstatt-flaeche"/>
     <text id="werkstatt-titel" x="40" y="800" font-family="-apple-system, Helvetica, Arial, sans-serif" font-weight="800" fill="#aab1c2" font-size="12" letter-spacing="3">▾ WERKSTATT · ALLE CLAUDE-SITZUNGEN AUF DIESEM RECHNER</text>
   </g>
@@ -394,6 +396,8 @@ async function schalteRolle(rolle) {
 
 function baueGruppe(a) {
   const g = el("g", { class: "paket", tabindex: 0, role: "button" });
+  // Unsichtbare Trefferfläche, damit das Paket auch auf kleinen Bildschirmen gut antippbar ist.
+  el("rect", { x: -29, y: -58, width: 58, height: 60, fill: "transparent" }, g);
   const innen = el("g", { class: "paket-innen" }, g);
   el("rect", { class: "paket-kiste", x: -26, y: -50, width: 52, height: 50, rx: 3, fill: "#c8955c", stroke: "#8a5f33", "stroke-width": 1.5 }, innen);
   el("rect", { class: "paket-band", x: -5, y: -50, width: 10, height: 50, fill: "#a87a45" }, innen);
@@ -601,14 +605,14 @@ function aktualisiereTafel(auftraege, sitzungen, wach) {
 function aktualisiereWerkbaenke(sitzungen) {
   const ebene = $("werkbaenke");
   // Nur neu zeichnen, wenn sich etwas geändert hat, sonst gehen Fokus und Hover verloren.
-  const signatur = JSON.stringify(sitzungen.slice(0, 10).map((s) => [s.id, s.projekt, s.name, s.zustand, s.fabrik, s.zustand === "ruht" ? s.seit : 0]));
+  const signatur = JSON.stringify(sitzungen.slice(0, 10).map((s) => [s.id, s.projekt, s.name, s.zustand, s.fabrik, s.dezent, s.zustand === "ruht" ? s.seit : 0]));
   if (signatur === zustand.werkbankSignatur) return;
   zustand.werkbankSignatur = signatur;
   ebene.replaceChildren();
   const max = 10;
   const breite = 152;
   sitzungen.slice(0, max).forEach((s, i) => {
-    const g = el("g", { class: `bank ${s.zustand}${s.id ? " klickbar" : ""}`, transform: `translate(${40 + i * breite} 908)`, tabindex: 0,
+    const g = el("g", { class: `bank ${s.zustand}${s.id ? " klickbar" : ""}`, transform: `translate(${40 + i * breite} 908)`, tabindex: 0, "data-sid": s.id || null,
       role: s.id ? "button" : null, "aria-label": `${s.projekt}, ${s.zustand}${s.id ? ", Details öffnen" : ""}` }, ebene);
     el("rect", { x: 0, y: -96, width: 144, height: 132, fill: "transparent", class: "bank-flaeche" }, g);
     el("path", { class: "lampe-licht", d: "M112 -84 L80 -40 L140 -40 Z", fill: "url(#g-licht)" }, g);
@@ -628,7 +632,10 @@ function aktualisiereWerkbaenke(sitzungen) {
       el("rect", { x: 46, y: -46, width: 7, height: 4, rx: 2, fill: "#f0c9a0" }, tippen);
       el("rect", { x: 56, y: -46, width: 7, height: 4, rx: 2, fill: "#f0c9a0" }, tippen);
     }
-    el("text", { x: 72, y: 16, "text-anchor": "middle", "font-size": 13, "font-weight": 600, fill: "#d9deea", "font-family": "-apple-system, Helvetica, Arial, sans-serif" }, g)
+    // Ohne erkennbares Projekt steht nur ein Platzhalter da, der tritt dezent zurück.
+    el("text", { x: 72, y: 16, "text-anchor": "middle", "font-size": s.dezent ? 11 : 13, "font-weight": s.dezent ? 400 : 600,
+      fill: s.dezent ? "#8b93a7" : "#d9deea", class: s.dezent ? "bank-name dezent" : "bank-name",
+      "font-family": "-apple-system, Helvetica, Arial, sans-serif" }, g)
       .textContent = kurz(s.projekt, 18);
     const zust = { arbeitet: "arbeitet", wartet: "wartet", ruht: "zuletzt " + new Date(s.seit).toLocaleDateString("de-DE") }[s.zustand];
     el("text", { x: 72, y: 30, "text-anchor": "middle", "font-size": 11, fill: "#8b93a7", "font-family": "-apple-system, Helvetica, Arial, sans-serif" }, g)
@@ -888,24 +895,53 @@ async function ladeKarte(id) {
 
 function oeffneSitzung(sid) { return oeffneKarte("S:" + sid); }
 
+// Merkt sich, von wo die Karte geöffnet wurde, damit der Fokus beim Schließen dorthin zurückgeht.
+function merkeAusloeser() {
+  const el = document.activeElement;
+  if (!el || el === document.body || $("karte").contains(el)) return null;
+  return {
+    el,
+    paket: el.classList?.contains("tafel-paket") ? el.dataset.id : null,
+    sitzung: el.dataset?.sid || null,
+  };
+}
+
+function findeAusloeser(a) {
+  if (!a) return null;
+  if (a.el.isConnected) return a.el;
+  // Tafel und Werkbänke werden neu gezeichnet; dann das gleichwertige neue Element suchen.
+  if (a.paket) return document.querySelector(`.tafel-paket[data-id="${CSS.escape(a.paket)}"]`) || zustand.pakete.get(a.paket)?.g || null;
+  if (a.sitzung) return document.querySelector(`.bank[data-sid="${CSS.escape(a.sitzung)}"]`);
+  return null;
+}
+
 async function oeffneKarte(id) {
   versteckeTooltip();
+  const warOffen = Boolean(zustand.offeneKarte);
+  const ausloeser = warOffen ? zustand.ausloeser : merkeAusloeser();
   zustand.offeneKarte = id;
   zustand.karteGerendert = null;
-  try { await ladeKarte(id); } catch { return; }
+  try { await ladeKarte(id); } catch { if (!warOffen) zustand.offeneKarte = null; return; }
+  zustand.ausloeser = ausloeser;
   const karte = $("karte");
+  karte.inert = false;
   karte.classList.add("offen");
-  karte.setAttribute("aria-hidden", "false");
+  $("halle-rahmen").inert = true;
   $("schleier").hidden = false;
   $("karte-zu").focus();
 }
 
 function schliesseKarte() {
+  if (!zustand.offeneKarte) return;
   zustand.offeneKarte = null;
   const karte = $("karte");
   karte.classList.remove("offen");
-  karte.setAttribute("aria-hidden", "true");
+  karte.inert = true;
+  $("halle-rahmen").inert = false;
   $("schleier").hidden = true;
+  const ziel = findeAusloeser(zustand.ausloeser);
+  zustand.ausloeser = null;
+  if (ziel) ziel.focus({ preventScroll: false });
 }
 
 async function kopiere(e) {

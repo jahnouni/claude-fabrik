@@ -105,6 +105,14 @@ Deine Aufträge im Lager und die Einstellungen in `~/.claude/fabrik/` bleiben er
 
 Zum Ausprobieren ohne Installation: `claude --plugin-dir ./plugins/fabrik`
 
+## Tests
+
+```
+python3 -m unittest discover -s tests
+```
+
+Die Tests prüfen, wie die Halle Sitzungen im Benutzer- oder Temp-Ordner benennt. Sie brauchen nur Python 3.9 oder neuer.
+
 ## Lizenz
 
 MIT
