@@ -1,6 +1,6 @@
 # Änderungen
 
-## 1.0.0 – 2026-10-28
+## 0.1.0 – 2026-10-28
 
 Erste Version als Claude-Code-Plugin.
 
