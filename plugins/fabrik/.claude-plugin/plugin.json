@@ -1,0 +1,12 @@
+{
+  "name": "fabrik",
+  "version": "1.0.0",
+  "description": "Software-Fabrik: /fabrik schickt einen Wunsch durch Spec, Bau, Prüfrunden und Freigabe. Sicherheit, Code, Bedienung und Design werden von eigenen Prüfern kontrolliert, heikle Fälle eskalieren an einen Menschen. Mit Fabrikhalle im Browser.",
+  "author": {
+    "name": "R3DA"
+  },
+  "homepage": "https://github.com/jahnouni/claude-fabrik",
+  "repository": "https://github.com/jahnouni/claude-fabrik",
+  "license": "MIT",
+  "keywords": ["pipeline", "agents", "review", "dashboard", "deutsch"]
+}

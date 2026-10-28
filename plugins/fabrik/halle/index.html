@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Software-Fabrik</title>
+<link rel="stylesheet" href="halle.css">
+</head>
+<body>
+<main class="halle-rahmen">
+  <svg id="halle" viewBox="0 0 1600 960" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Fabrikhalle mit allen Aufträgen"></svg>
+  <p class="verbindung" id="verbindung" hidden>Keine Verbindung zum Lager … neuer Versuch läuft</p>
+</main>
+
+<div class="tooltip" id="tooltip" role="tooltip" hidden></div>
+
+<aside class="karte" id="karte" aria-hidden="true" aria-labelledby="karte-titel">
+  <div class="karte-kopf">
+    <div>
+      <div class="karte-id" id="karte-id"></div>
+      <h2 id="karte-titel"></h2>
+    </div>
+    <button class="schliessen" id="karte-zu" aria-label="Infokarte schließen">×</button>
+  </div>
+  <button class="kopieren" id="karte-kopieren" type="button"></button>
+  <div class="karte-inhalt" id="karte-inhalt"></div>
+</aside>
+<div class="schleier" id="schleier" hidden></div>
+
+<script src="halle.js"></script>
+</body>
+</html>

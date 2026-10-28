@@ -1,0 +1,697 @@
+#!/usr/bin/env python3
+"""Werkzeug der Software-Fabrik: legt Aufträge an und pflegt ihren Stand.
+
+Alle Stationen melden ihren Fortschritt über dieses Skript, damit
+status.json immer gültig bleibt und die Halle den Stand anzeigen kann.
+"""
+import argparse
+import fcntl
+import json
+import os
+import re
+import shutil
+import signal
+import subprocess
+import sys
+import time
+import urllib.request
+import webbrowser
+from contextlib import contextmanager
+from datetime import datetime, timezone
+from pathlib import Path
+
+# Werk: der Plugin-Ordner (Skripte, Halle). Wird bei jedem Update ersetzt.
+WERK = Path(__file__).resolve().parent.parent
+# Daten: Einstellungen und Laufzeitdateien. Liegen außerhalb des Plugins, damit Updates sie nicht löschen.
+DATEN = Path(os.environ.get("FABRIK_DATEN", Path.home() / ".claude/fabrik"))
+EINSTELLUNGEN = DATEN / "einstellungen.json"
+LAGER_STANDARD = Path.home() / "Claude-Fabrik"
+# Diese Einstellungen lassen sich mit `fabrik einstellung <name> <wert>` setzen.
+EINSTELLBAR = {
+    "lager": "Ordner, in dem die Aufträge liegen",
+    "git_name": "Git-Name für Commits in Auftrags-Repos (leer: globale Git-Einstellung)",
+    "git_email": "Git-E-Mail für Commits in Auftrags-Repos (leer: globale Git-Einstellung)",
+    "autor": "Name, den Arbeiter eintragen, wenn ein Autor nötig ist (leer: keinen eintragen)",
+}
+
+ROLLEN = ["spec", "builder", "sicherheit", "designer", "inspector", "bediener", "approver"]
+# Nur Prüfer lassen sich abschalten; Spec, Builder und Approver braucht jeder Auftrag.
+SCHALTBAR = ["sicherheit", "designer", "inspector", "bediener"]
+STATIONEN = ["eingang", "spec", "bau", "pruefung", "freigabe", "fertig"]
+STATUS = ["aktiv", "pausiert", "eskaliert", "fertig", "abgebrochen"]
+ID_MUSTER = re.compile(r"^F-\d{4}$")
+OFFEN = ("aktiv", "pausiert", "eskaliert")
+HALLE_PID = DATEN / "halle.pid"
+HALLE_LOG = DATEN / "halle.log"
+WACH_PID = DATEN / "wach.pid"
+AUTOSTART_LABEL = "claude-fabrik.halle"
+AUTOSTART_PLIST = Path.home() / "Library/LaunchAgents" / f"{AUTOSTART_LABEL}.plist"
+AUTOSTART_SKRIPT = DATEN / "autostart.sh"
+WACH_PRUEFEN_S = 30
+# Schutz vor hängengebliebenen Ständen: ein Arbeiter ohne Meldung seit 3 Stunden zählt nicht mehr.
+WACH_MAX_STILL_S = 3 * 3600
+
+GITIGNORE = """.fabrik/
+.env
+.env.*
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+.DS_Store
+"""
+
+
+def lies_einstellungen():
+    try:
+        d = json.loads(EINSTELLUNGEN.read_text())
+    except (OSError, json.JSONDecodeError):
+        d = {}
+    d["deaktiviert"] = [r for r in d.get("deaktiviert", []) if r in SCHALTBAR]
+    return d
+
+
+def lager_ermitteln():
+    if os.environ.get("FABRIK_LAGER"):
+        return Path(os.environ["FABRIK_LAGER"]).expanduser()
+    eintrag = lies_einstellungen().get("lager")
+    return Path(eintrag).expanduser() if eintrag else LAGER_STANDARD
+
+
+LAGER = lager_ermitteln()
+
+
+def jetzt():
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def fehler(text):
+    print(f"fabrik: {text}", file=sys.stderr)
+    sys.exit(1)
+
+
+@contextmanager
+def sperre(datei):
+    datei.parent.mkdir(parents=True, exist_ok=True)
+    with open(datei, "w") as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(f, fcntl.LOCK_UN)
+
+
+def schreibe_json(pfad, daten):
+    tmp = pfad.with_suffix(".tmp")
+    tmp.write_text(json.dumps(daten, ensure_ascii=False, indent=2) + "\n")
+    os.replace(tmp, pfad)
+
+
+def auftrag_pfad(aid):
+    if not ID_MUSTER.match(aid):
+        fehler(f"ungültige ID '{aid}' (erwartet z. B. F-0001)")
+    treffer = sorted(LAGER.glob(f"{aid}-*"))
+    if not treffer:
+        fehler(f"Auftrag {aid} nicht gefunden in {LAGER}")
+    return treffer[0]
+
+
+@contextmanager
+def auftrag(aid):
+    """Lädt status.json gesperrt, übergibt es zum Ändern und speichert es."""
+    pfad = auftrag_pfad(aid)
+    fab = pfad / ".fabrik"
+    with sperre(fab / "status.lock"):
+        status = json.loads((fab / "status.json").read_text())
+        yield status, pfad
+        status["aktualisiert"] = jetzt()
+        schreibe_json(fab / "status.json", status)
+
+
+def ereignis(pfad, typ, text, rolle=None):
+    eintrag = {"zeit": jetzt(), "typ": typ, "text": text}
+    if rolle:
+        eintrag["rolle"] = rolle
+    with open(pfad / ".fabrik" / "verlauf.jsonl", "a") as f:
+        f.write(json.dumps(eintrag, ensure_ascii=False) + "\n")
+
+
+def git(pfad, *args):
+    return subprocess.run(["git", "-C", str(pfad), *args], capture_output=True, text=True)
+
+
+def wert(text):
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return text
+
+
+# --- Befehle -----------------------------------------------------------------
+
+def schreibe_einstellungen(d):
+    DATEN.mkdir(parents=True, exist_ok=True)
+    tmp = EINSTELLUNGEN.with_suffix(".tmp")
+    tmp.write_text(json.dumps(d, ensure_ascii=False, indent=2) + "\n")
+    os.replace(tmp, EINSTELLUNGEN)
+
+
+def cmd_rollen(a):
+    """Zeigt, welche Prüfer aktiv und welche abgeschaltet sind (JSON)."""
+    aus = lies_einstellungen()["deaktiviert"]
+    print(json.dumps({"aktiv": [r for r in SCHALTBAR if r not in aus], "deaktiviert": aus}, ensure_ascii=False))
+
+
+def cmd_rolle(a):
+    """Schaltet einen Prüfer an oder aus."""
+    if a.rolle not in SCHALTBAR:
+        fehler(f"Nur diese Prüfer lassen sich schalten: {', '.join(SCHALTBAR)}")
+    d = lies_einstellungen()
+    aus = [r for r in d["deaktiviert"] if r != a.rolle]
+    if a.zustand == "aus":
+        aus.append(a.rolle)
+    d["deaktiviert"] = [r for r in SCHALTBAR if r in aus]
+    schreibe_einstellungen(d)
+    print(f"{a.rolle}: {a.zustand}")
+
+
+def cmd_einstellung(a):
+    """Zeigt die Einstellungen (JSON) oder setzt eine davon."""
+    d = lies_einstellungen()
+    if not a.name:
+        stand = {k: d.get(k, "") for k in EINSTELLBAR}
+        stand["lager"] = str(LAGER)
+        stand["eingerichtet"] = bool(d.get("eingerichtet"))
+        stand["deaktiviert"] = d["deaktiviert"]
+        stand["daten"] = str(DATEN)
+        stand["autostart"] = AUTOSTART_PLIST.exists()
+        print(json.dumps(stand, ensure_ascii=False, indent=2))
+        return
+    if a.name == "eingerichtet":
+        d["eingerichtet"] = True
+        schreibe_einstellungen(d)
+        print("eingerichtet")
+        return
+    if a.name not in EINSTELLBAR:
+        fehler(f"Unbekannte Einstellung '{a.name}'. Möglich: {', '.join(EINSTELLBAR)}, eingerichtet")
+    if a.wert is None:
+        print(d.get(a.name, "") if a.name != "lager" else LAGER)
+        return
+    wert_neu = a.wert.strip()
+    if a.name == "lager" and wert_neu:
+        wert_neu = str(Path(wert_neu).expanduser().resolve())
+    if wert_neu:
+        d[a.name] = wert_neu
+    else:
+        d.pop(a.name, None)
+    schreibe_einstellungen(d)
+    print(f"{a.name}: {wert_neu or '(leer)'}")
+
+
+def cmd_neu(a):
+    slug = re.sub(r"[^a-z0-9]+", "-", a.slug.lower()).strip("-")[:40] or "projekt"
+    LAGER.mkdir(parents=True, exist_ok=True)
+    with sperre(LAGER / ".zaehler.lock"):
+        nummern = [int(p.name[2:6]) for p in LAGER.glob("F-[0-9][0-9][0-9][0-9]-*")]
+        aid = f"F-{max(nummern, default=0) + 1:04d}"
+        pfad = LAGER / f"{aid}-{slug}"
+        (pfad / ".fabrik" / "befunde").mkdir(parents=True)
+    status = {
+        "id": aid,
+        "titel": a.titel,
+        "auftrag": a.auftrag,
+        "pfad": str(pfad),
+        "status": "aktiv",
+        "station": "eingang",
+        "runde": 0,
+        "max_runden": 3,
+        "version": 0,
+        "hat_ui": None,
+        "sensibel": [],
+        "ziel": "",
+        "kriterien": [],
+        "aktive_arbeiter": [],
+        "befunde": {},
+        "eskalation": None,
+        "commits": [],
+        "erstellt": jetzt(),
+        "aktualisiert": jetzt(),
+    }
+    schreibe_json(pfad / ".fabrik" / "status.json", status)
+    (pfad / ".fabrik" / "todos.md").write_text("# Todos\n")
+    (pfad / ".fabrik" / "backlog.md").write_text("# Backlog\n")
+    (pfad / ".gitignore").write_text(GITIGNORE)
+    git(pfad, "init", "-q", "-b", "main")
+    e = lies_einstellungen()
+    if e.get("git_name"):
+        git(pfad, "config", "user.name", e["git_name"])
+    if e.get("git_email"):
+        git(pfad, "config", "user.email", e["git_email"])
+    ereignis(pfad, "neu", f"Auftrag angenommen: {a.titel}")
+    print(json.dumps({"id": aid, "pfad": str(pfad)}, ensure_ascii=False))
+
+
+def cmd_station(a):
+    if a.station not in STATIONEN:
+        fehler(f"Station muss eine von {STATIONEN} sein")
+    with auftrag(a.id) as (s, pfad):
+        s["station"] = a.station
+        if s["status"] in ("pausiert",):
+            s["status"] = "aktiv"
+    ereignis(pfad, "station", f"Station: {a.station}")
+
+
+def cmd_runde(a):
+    with auftrag(a.id) as (s, pfad):
+        s["runde"] = a.runde
+    ereignis(pfad, "runde", f"Runde {a.runde} beginnt")
+
+
+def cmd_arbeiter(a):
+    if a.rolle not in ROLLEN:
+        fehler(f"Rolle muss eine von {ROLLEN} sein")
+    with auftrag(a.id) as (s, pfad):
+        aktiv = set(s["aktive_arbeiter"])
+        if a.aktion == "start":
+            aktiv.add(a.rolle)
+        else:
+            aktiv.discard(a.rolle)
+        s["aktive_arbeiter"] = [r for r in ROLLEN if r in aktiv]
+    text = "beginnt" if a.aktion == "start" else "ist fertig"
+    ereignis(pfad, "arbeiter", f"{a.rolle} {text}", a.rolle)
+    if a.aktion == "start":
+        wach_sicherstellen()
+
+
+def cmd_setze(a):
+    erlaubt = {"titel", "hat_ui", "sensibel", "ziel", "max_runden", "status", "aktive_arbeiter"}
+    with auftrag(a.id) as (s, pfad):
+        for paar in a.paare:
+            if "=" not in paar:
+                fehler(f"'{paar}' ist kein feld=wert")
+            feld, roh = paar.split("=", 1)
+            if feld not in erlaubt:
+                fehler(f"Feld '{feld}' darf nicht gesetzt werden (erlaubt: {sorted(erlaubt)})")
+            v = wert(roh)
+            if feld == "status" and v not in STATUS:
+                fehler(f"Status muss einer von {STATUS} sein")
+            s[feld] = v
+
+
+def cmd_ereignis(a):
+    pfad = auftrag_pfad(a.id)
+    ereignis(pfad, a.typ, a.text, a.rolle)
+
+
+def cmd_kriterien(a):
+    """Liest Ziel und Abnahmekriterien (- [ ] AK-n: Text) aus .fabrik/spec.md."""
+    with auftrag(a.id) as (s, pfad):
+        spec = (pfad / ".fabrik" / "spec.md").read_text()
+        alt = {k["id"]: k for k in s["kriterien"]}
+        neu = []
+        for m in re.finditer(r"^\s*[-*]\s*\[[ xX]\]\s*(AK-\d+)\s*[:–-]\s*(.+)$", spec, re.M):
+            kid, text = m.group(1), m.group(2).strip()
+            neu.append({"id": kid, "text": text, "erfuellt": alt.get(kid, {}).get("erfuellt")})
+        ziel = re.search(r"^##\s*Ziel\s*\n+(.+?)(?:\n\s*\n|\n#)", spec, re.M | re.S)
+        if ziel:
+            s["ziel"] = ziel.group(1).strip()
+        s["kriterien"] = neu
+    print(f"{len(neu)} Abnahmekriterien übernommen")
+
+
+def cmd_kriterium(a):
+    zustand = {"ja": True, "nein": False, "offen": None}[a.zustand]
+    with auftrag(a.id) as (s, pfad):
+        for k in s["kriterien"]:
+            if k["id"] == a.kid:
+                k["erfuellt"] = zustand
+                break
+        else:
+            fehler(f"Kriterium {a.kid} unbekannt")
+
+
+def cmd_befund(a):
+    if a.rolle not in ROLLEN:
+        fehler(f"Rolle muss eine von {ROLLEN} sein")
+    with auftrag(a.id) as (s, pfad):
+        s["befunde"].setdefault(str(a.runde), {})[a.rolle] = {"blocker": a.blocker, "klein": a.klein}
+    ereignis(pfad, "befund", f"{a.rolle}: {a.blocker} Blocker, {a.klein} Kleinigkeiten", a.rolle)
+
+
+def cmd_eskaliere(a):
+    with auftrag(a.id) as (s, pfad):
+        s["status"] = "eskaliert"
+        s["station"] = "freigabe"
+        s["aktive_arbeiter"] = []
+        s["eskalation"] = {"grund": a.grund, "bereiche": a.bereiche.split(",") if a.bereiche else [], "zeit": jetzt()}
+    ereignis(pfad, "eskaliert", a.grund, "approver")
+
+
+def offene_blocker(s):
+    if not s["befunde"]:
+        return 0
+    letzte = s["befunde"][max(s["befunde"], key=int)]
+    return sum(b.get("blocker", 0) for b in letzte.values())
+
+
+def cmd_fertig(a):
+    with auftrag(a.id) as (s, pfad):
+        # Harte Sperre: offene Blocker oder sensible Bereiche brauchen eine Entscheidung des Menschen.
+        if not a.mensch:
+            if offene_blocker(s):
+                fehler(f"Freigabe gesperrt: {offene_blocker(s)} offene Blocker in der letzten Runde. "
+                       f"Eskalieren mit: fabrik eskaliere {s['id']} --bereiche offene_blocker --grund \"…\"")
+            if s["sensibel"]:
+                fehler(f"Freigabe gesperrt: sensibel ({', '.join(s['sensibel'])}). Eskalieren, ein Mensch muss entscheiden.")
+        s["status"] = "fertig"
+        s["station"] = "fertig"
+        s["aktive_arbeiter"] = []
+        if s["eskalation"]:
+            s["eskalation"]["geloest"] = jetzt()
+    ereignis(pfad, "fertig", "Vom Menschen freigegeben" if a.mensch else "Freigegeben", None if a.mensch else "approver")
+
+
+def cmd_commit(a):
+    with auftrag(a.id) as (s, pfad):
+        if s["status"] != "fertig":
+            fehler("Commit nur nach Freigabe (Status 'fertig')")
+        git(pfad, "add", "-A")
+        if not git(pfad, "status", "--porcelain").stdout.strip():
+            print("Nichts zu committen")
+            return
+        s["version"] += 1
+        nachricht = a.nachricht or f"{s['id']}: {s['titel']} (Version {s['version']})"
+        r = git(pfad, "commit", "-q", "-m", nachricht)
+        if r.returncode:
+            s["version"] -= 1
+            fehler(f"Commit fehlgeschlagen: {r.stderr.strip()}")
+        sha = git(pfad, "rev-parse", "--short", "HEAD").stdout.strip()
+        s["commits"].append({"sha": sha, "nachricht": nachricht, "zeit": jetzt()})
+    ereignis(pfad, "commit", f"Commit {sha}: {nachricht}")
+    print(sha)
+
+
+def cmd_neue_version(a):
+    """Archiviert Befunde und Todos der letzten Version und startet einen neuen Bau."""
+    with auftrag(a.id) as (s, pfad):
+        fab = pfad / ".fabrik"
+        archiv = fab / "archiv" / f"v{s['version']}-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+        archiv.mkdir(parents=True)
+        for name in ("befunde", "todos.md", "freigabe.md"):
+            if (fab / name).exists():
+                os.replace(fab / name, archiv / name)
+        (fab / "befunde").mkdir()
+        (fab / "todos.md").write_text("# Todos\n")
+        s.update(status="aktiv", station="bau", runde=0, befunde={}, eskalation=None, aktive_arbeiter=[])
+        for k in s["kriterien"]:
+            k["erfuellt"] = None
+    ereignis(pfad, "version", f"Neue Version nach v{s['version']} begonnen")
+    print(archiv)
+
+
+def cmd_pfad(a):
+    print(auftrag_pfad(a.id))
+
+
+def cmd_zeige(a):
+    print((auftrag_pfad(a.id) / ".fabrik" / "status.json").read_text(), end="")
+
+
+def cmd_liste(a):
+    zeilen = []
+    for p in sorted(LAGER.glob("F-[0-9][0-9][0-9][0-9]-*/.fabrik/status.json")):
+        s = json.loads(p.read_text())
+        zeilen.append(f"{s['id']}  {s['status']:<11} {s['station']:<9} Runde {s['runde']}/{s['max_runden']}  {s['titel']}")
+    print("\n".join(zeilen) if zeilen else "Noch keine Aufträge im Lager.")
+
+
+def halle_laeuft(port):
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/stand", timeout=2) as r:
+            return r.status == 200
+    except OSError:
+        return False
+
+
+def offene_auftraege():
+    offen = []
+    for p in LAGER.glob("F-[0-9][0-9][0-9][0-9]-*/.fabrik/status.json"):
+        try:
+            s = json.loads(p.read_text())
+        except (OSError, json.JSONDecodeError):
+            continue
+        if s.get("status") in OFFEN:
+            offen.append(s["id"])
+    return sorted(offen)
+
+
+def cmd_halle(a):
+    """Aktiviert die Halle: läuft losgelöst weiter, bis der Rechner herunterfährt."""
+    server = WERK / "halle" / "server.py"
+    url = f"http://127.0.0.1:{a.port}/" + (f"#{a.id}" if a.id else "")
+    if a.stopp:
+        return halle_stoppen()
+    DATEN.mkdir(parents=True, exist_ok=True)
+    os.environ.update(FABRIK_LAGER=str(LAGER), FABRIK_DATEN=str(DATEN))
+    if AUTOSTART_PLIST.exists():
+        autostart_skript_schreiben()
+    if a.vordergrund:
+        os.execv(sys.executable, [sys.executable, str(server), "--port", str(a.port), "--pid", str(HALLE_PID)])
+    if halle_laeuft(a.port):
+        print(f"Halle läuft bereits: {url}")
+    else:
+        with open(HALLE_LOG, "a") as log:
+            subprocess.Popen([sys.executable, str(server), "--port", str(a.port), "--pid", str(HALLE_PID)],
+                             stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True)
+        for _ in range(30):
+            if halle_laeuft(a.port):
+                break
+            time.sleep(0.2)
+        else:
+            fehler(f"Halle startet nicht, siehe {HALLE_LOG}")
+        print(f"Halle aktiviert: {url}")
+    if not a.kein_browser:
+        webbrowser.open(url)
+
+
+def halle_stoppen():
+    if prozess_lebt(HALLE_PID, "server.py"):
+        os.kill(int(HALLE_PID.read_text().strip()), signal.SIGTERM)
+        print("Halle gestoppt.")
+    else:
+        print("Halle läuft nicht.")
+    HALLE_PID.unlink(missing_ok=True)
+
+
+def prozess_lebt(pid_datei, merkmal):
+    try:
+        pid = int(pid_datei.read_text().strip())
+    except (OSError, ValueError):
+        return False
+    befehl = subprocess.run(["ps", "-p", str(pid), "-o", "command="], capture_output=True, text=True).stdout
+    return merkmal in befehl
+
+
+def arbeiter_im_einsatz():
+    grenze = time.time() - WACH_MAX_STILL_S
+    for p in LAGER.glob("F-[0-9][0-9][0-9][0-9]-*/.fabrik/status.json"):
+        try:
+            s = json.loads(p.read_text())
+            if (s.get("status") == "aktiv" and s.get("aktive_arbeiter")
+                    and datetime.fromisoformat(s["aktualisiert"]).timestamp() > grenze):
+                return True
+        except (OSError, json.JSONDecodeError, KeyError, ValueError):
+            continue
+    return False
+
+
+def wach_sicherstellen():
+    """Startet den Wachhalter, falls er nicht schon läuft."""
+    if prozess_lebt(WACH_PID, "fabrik wach"):
+        return
+    DATEN.mkdir(parents=True, exist_ok=True)
+    with open(HALLE_LOG, "a") as log:
+        subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "wach"],
+                         stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True)
+
+
+def cmd_wach(a):
+    """Hält den Rechner wach, solange Arbeiter im Einsatz sind (caffeinate)."""
+    if Path("/usr/bin/caffeinate").exists():
+        # macOS. -i: kein Ruhezustand bei Inaktivität, -s: kein Schlaf am Netzteil. Der Bildschirm darf aus.
+        befehl = ["/usr/bin/caffeinate", "-i", "-s"]
+    elif shutil.which("systemd-inhibit"):
+        befehl = ["systemd-inhibit", "--what=idle:sleep", "--why=Software-Fabrik arbeitet", "sleep", "infinity"]
+    else:
+        print(f"{jetzt()} Wachhalter: kein caffeinate oder systemd-inhibit gefunden, Rechner kann einschlafen.", flush=True)
+        return
+    WACH_PID.write_text(str(os.getpid()))
+    koffein = subprocess.Popen(befehl)
+    print(f"{jetzt()} Wachhalter an: Arbeiter im Einsatz, Rechner bleibt wach.", flush=True)
+    try:
+        while koffein.poll() is None and arbeiter_im_einsatz():
+            time.sleep(WACH_PRUEFEN_S)
+    finally:
+        koffein.terminate()
+        if WACH_PID.exists() and WACH_PID.read_text().strip() == str(os.getpid()):
+            WACH_PID.unlink(missing_ok=True)
+        print(f"{jetzt()} Wachhalter aus: keine Arbeiter mehr im Einsatz.", flush=True)
+
+
+def autostart_skript_schreiben():
+    """Startskript für den Anmeldedienst. Findet das Werkzeug auch nach einem Plugin-Update wieder."""
+    skript = f"""#!/bin/sh
+# Von `fabrik autostart an` erzeugt. Startet die Fabrikhalle beim Anmelden, wenn Aufträge offen sind.
+F="{Path(__file__).resolve()}"
+if [ ! -f "$F" ]; then
+  F=$(ls -d "$HOME"/.claude/plugins/cache/*/fabrik/*/bin/fabrik 2>/dev/null | sort -V | tail -n 1)
+fi
+[ -n "$F" ] || exit 0
+exec "{sys.executable}" "$F" autostart
+"""
+    DATEN.mkdir(parents=True, exist_ok=True)
+    AUTOSTART_SKRIPT.write_text(skript)
+    AUTOSTART_SKRIPT.chmod(0o755)
+
+
+def cmd_autostart(a):
+    """Beim Anmelden: Halle nur starten, wenn noch Aufträge offen sind. `an`/`aus` richtet den Dienst ein (macOS)."""
+    if a.schalter:
+        return autostart_schalten(a.schalter == "an")
+    offen = offene_auftraege()
+    if not offen:
+        print(f"{jetzt()} Autostart: keine offenen Aufträge, Halle bleibt aus.", flush=True)
+        return
+    if halle_laeuft(a.port):
+        return
+    print(f"{jetzt()} Autostart: offen {', '.join(offen)}, Halle startet.", flush=True)
+    server = WERK / "halle" / "server.py"
+    os.environ.update(FABRIK_LAGER=str(LAGER), FABRIK_DATEN=str(DATEN))
+    os.execv(sys.executable, [sys.executable, str(server), "--port", str(a.port), "--pid", str(HALLE_PID)])
+
+
+def autostart_schalten(an):
+    if sys.platform != "darwin":
+        fehler("Autostart gibt es bisher nur für macOS.")
+    domain = f"gui/{os.getuid()}"
+    if not an:
+        if AUTOSTART_PLIST.exists():
+            subprocess.run(["launchctl", "bootout", domain, str(AUTOSTART_PLIST)], capture_output=True)
+            AUTOSTART_PLIST.unlink()
+        AUTOSTART_SKRIPT.unlink(missing_ok=True)
+        print("Autostart aus.")
+        return
+    autostart_skript_schreiben()
+    plist = f"""<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>{AUTOSTART_LABEL}</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>{AUTOSTART_SKRIPT}</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>{HALLE_LOG}</string>
+  <key>StandardErrorPath</key>
+  <string>{HALLE_LOG}</string>
+</dict>
+</plist>
+"""
+    AUTOSTART_PLIST.parent.mkdir(parents=True, exist_ok=True)
+    AUTOSTART_PLIST.write_text(plist)
+    print(f"Autostart an: Die Halle startet beim Anmelden, wenn Aufträge offen sind ({AUTOSTART_PLIST}).")
+
+
+def main():
+    p = argparse.ArgumentParser(prog="fabrik", description="Werkzeug der Software-Fabrik")
+    u = p.add_subparsers(dest="befehl", required=True)
+
+    x = u.add_parser("neu", help="Neuen Auftrag anlegen")
+    x.add_argument("--titel", required=True)
+    x.add_argument("--slug", required=True)
+    x.add_argument("--auftrag", required=True)
+    x.set_defaults(f=cmd_neu)
+
+    x = u.add_parser("station", help="Station setzen")
+    x.add_argument("id"); x.add_argument("station"); x.set_defaults(f=cmd_station)
+
+    x = u.add_parser("runde", help="Prüfrunde setzen")
+    x.add_argument("id"); x.add_argument("runde", type=int); x.set_defaults(f=cmd_runde)
+
+    x = u.add_parser("arbeiter", help="Arbeiter beginnt/endet")
+    x.add_argument("id"); x.add_argument("rolle"); x.add_argument("aktion", choices=["start", "ende"])
+    x.set_defaults(f=cmd_arbeiter)
+
+    x = u.add_parser("setze", help="Felder setzen: feld=wert")
+    x.add_argument("id"); x.add_argument("paare", nargs="+"); x.set_defaults(f=cmd_setze)
+
+    x = u.add_parser("ereignis", help="Eintrag in den Verlauf")
+    x.add_argument("id"); x.add_argument("typ"); x.add_argument("text"); x.add_argument("--rolle")
+    x.set_defaults(f=cmd_ereignis)
+
+    x = u.add_parser("kriterien", help="Ziel und Abnahmekriterien aus spec.md übernehmen")
+    x.add_argument("id"); x.set_defaults(f=cmd_kriterien)
+
+    x = u.add_parser("kriterium", help="Kriterium abhaken")
+    x.add_argument("id"); x.add_argument("kid"); x.add_argument("zustand", choices=["ja", "nein", "offen"])
+    x.set_defaults(f=cmd_kriterium)
+
+    x = u.add_parser("befund", help="Befundzahlen eines Prüfers melden")
+    x.add_argument("id"); x.add_argument("runde", type=int); x.add_argument("rolle")
+    x.add_argument("blocker", type=int); x.add_argument("klein", type=int)
+    x.set_defaults(f=cmd_befund)
+
+    x = u.add_parser("eskaliere", help="Auftrag eskalieren und pausieren")
+    x.add_argument("id"); x.add_argument("--grund", required=True); x.add_argument("--bereiche", default="")
+    x.set_defaults(f=cmd_eskaliere)
+
+    x = u.add_parser("fertig", help="Auftrag freigeben")
+    x.add_argument("id")
+    x.add_argument("--mensch", action="store_true", help="Freigabe durch den Nutzer nach Eskalation")
+    x.set_defaults(f=cmd_fertig)
+
+    x = u.add_parser("commit", help="Freigegebenen Stand committen")
+    x.add_argument("id"); x.add_argument("--nachricht"); x.set_defaults(f=cmd_commit)
+
+    x = u.add_parser("neue-version", help="Befunde archivieren, neue Version beginnen")
+    x.add_argument("id"); x.set_defaults(f=cmd_neue_version)
+
+    for name, f in (("pfad", cmd_pfad), ("zeige", cmd_zeige)):
+        x = u.add_parser(name); x.add_argument("id"); x.set_defaults(f=f)
+
+    x = u.add_parser("liste", help="Alle Aufträge"); x.set_defaults(f=cmd_liste)
+
+    x = u.add_parser("einstellung", help="Einstellungen zeigen oder setzen")
+    x.add_argument("name", nargs="?"); x.add_argument("wert", nargs="?"); x.set_defaults(f=cmd_einstellung)
+
+    x = u.add_parser("rollen", help="Aktive und abgeschaltete Prüfer (JSON)"); x.set_defaults(f=cmd_rollen)
+
+    x = u.add_parser("rolle", help="Prüfer an- oder abschalten")
+    x.add_argument("rolle"); x.add_argument("zustand", choices=["an", "aus"]); x.set_defaults(f=cmd_rolle)
+
+    x = u.add_parser("halle", help="Fabrikhalle aktivieren und im Browser öffnen")
+    x.add_argument("id", nargs="?", help="Infokarte dieses Auftrags öffnen")
+    x.add_argument("--port", type=int, default=7333)
+    x.add_argument("--kein-browser", action="store_true")
+    x.add_argument("--vordergrund", action="store_true", help="Im Vordergrund laufen (für Tests)")
+    x.add_argument("--stopp", action="store_true", help="Halle beenden")
+    x.set_defaults(f=cmd_halle)
+
+    x = u.add_parser("wach", help="Rechner wach halten, solange Arbeiter im Einsatz sind")
+    x.set_defaults(f=cmd_wach)
+
+    x = u.add_parser("autostart", help="Beim Anmelden: Halle nur bei offenen Aufträgen starten")
+    x.add_argument("schalter", nargs="?", choices=["an", "aus"], help="Anmeldedienst einrichten oder entfernen (macOS)")
+    x.add_argument("--port", type=int, default=7333)
+    x.set_defaults(f=cmd_autostart)
+
+    a = p.parse_args()
+    a.f(a)
+
+
+if __name__ == "__main__":
+    main()

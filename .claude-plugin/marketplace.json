@@ -1,0 +1,17 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "claude-fabrik",
+  "description": "Software-Fabrik für Claude Code: Spec, Bau, Prüfung und Freigabe mit eigenen Arbeitern und einer Fabrikhalle im Browser.",
+  "owner": {
+    "name": "R3DA"
+  },
+  "plugins": [
+    {
+      "name": "fabrik",
+      "source": "./plugins/fabrik",
+      "description": "Software-Fabrik: /fabrik schickt einen Wunsch durch Spec, Bau, Prüfrunden und Freigabe. Mit Fabrikhalle im Browser.",
+      "category": "development",
+      "homepage": "https://github.com/jahnouni/claude-fabrik"
+    }
+  ]
+}

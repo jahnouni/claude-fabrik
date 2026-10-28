@@ -1,0 +1,307 @@
+:root {
+  --nacht: #1d2330;
+  --wand: #3a4255;
+  --boden: #2b303c;
+  --karte: #f7f3ea;
+  --karte-text: #23262e;
+  --karte-leise: #6b6f7a;
+  --linie: #e2dccd;
+  --opus: #f2b632;
+  --sonnet: #4fa8e0;
+  --rot: #e5484d;
+  --gruen: #3fb950;
+  --gelb: #f5c542;
+  --kreide: #f1efe6;
+  --schrift: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --kreideschrift: "Chalkboard SE", "Chalkboard", "Comic Sans MS", "Marker Felt", cursive;
+  --mono: ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  background: var(--nacht);
+  color: var(--kreide);
+  font-family: var(--schrift);
+  overflow: hidden;
+}
+
+.halle-rahmen {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+#halle { width: 100%; height: 100%; display: block; }
+
+.verbindung {
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  margin: 0;
+  padding: 8px 14px;
+  border-radius: 8px;
+  background: var(--rot);
+  color: #fff;
+  font-size: 14px;
+}
+
+/* --- Szene -------------------------------------------------------------- */
+.kreide { font-family: var(--kreideschrift); fill: var(--kreide); }
+.schild-text { font-family: var(--schrift); font-weight: 800; letter-spacing: 2px; font-size: 15px; fill: #2a2a2a; }
+.leise-text { font-family: var(--schrift); font-size: 13px; fill: #aab1c2; }
+
+.band-streifen { stroke-dasharray: 18 14; animation: band 1.2s linear infinite; animation-play-state: paused; }
+.halle-laeuft .band-streifen { animation-play-state: running; }
+@keyframes band { to { stroke-dashoffset: -32; } }
+.rolle-dreht { transform-box: fill-box; transform-origin: center; animation: drehen 1.2s linear infinite; animation-play-state: paused; }
+.halle-laeuft .rolle-dreht { animation-play-state: running; }
+@keyframes drehen { to { transform: rotate(360deg); } }
+
+.tafel-zahl { cursor: pointer; }
+.tafel-zahl:hover .tafel-feld, .tafel-zahl:focus-visible .tafel-feld { stroke: var(--kreide); stroke-opacity: .7; }
+.tafel-zahl:focus { outline: none; }
+.tafel-feld { fill: transparent; stroke: transparent; stroke-width: 2; stroke-dasharray: 6 5; }
+.tafel-zahl.gewaehlt .tafel-feld { stroke: var(--gelb); stroke-opacity: 1; stroke-dasharray: none; }
+
+.ampel-rot, .ampel-gruen { opacity: .18; }
+.ampel-an { opacity: 1; filter: drop-shadow(0 0 8px currentColor); }
+
+/* --- Arbeiter ----------------------------------------------------------- */
+.arbeiter { transition: opacity .4s; opacity: .78; }
+.arbeiter.aktiv { opacity: 1; }
+.arbeiter .arm { transform-box: view-box; transform-origin: 0 0; }
+.arbeiter.aktiv .arm { animation: arbeiten .7s ease-in-out infinite alternate; }
+.arbeiter.aktiv.ruhig .arm { animation-duration: 1.4s; }
+@keyframes arbeiten { from { transform: rotate(-38deg); } to { transform: rotate(18deg); } }
+.arbeiter .koerper { transform-box: fill-box; transform-origin: 50% 100%; }
+.arbeiter.aktiv .koerper { animation: wippen 1.4s ease-in-out infinite; }
+@keyframes wippen { 50% { transform: translateY(-2px); } }
+.arbeiter .blase { opacity: 0; transition: opacity .3s; }
+.arbeiter.aktiv .blase { opacity: 1; }
+.arbeiter.pause { opacity: .35; }
+.arbeiter .pause-schild { opacity: 0; }
+.arbeiter.pause .pause-schild { opacity: 1; }
+
+/* --- Werkstücke --------------------------------------------------------- */
+.paket { cursor: pointer; transition: transform 1.6s cubic-bezier(.45,.05,.3,1), opacity .4s; }
+.paket:focus { outline: none; }
+.paket:focus-visible .paket-kiste { stroke: var(--gelb); stroke-width: 3; }
+.paket:hover .paket-kiste { stroke: #fff; stroke-width: 2; }
+.paket-innen { transform-box: view-box; transform-origin: 0 0; }
+.paket .hinweis { opacity: 0; transition: opacity .4s; }
+.paket.zurueck .hinweis { opacity: 1; }
+.paket.neu .paket-innen { animation: plumps .6s ease-out; }
+@keyframes plumps { 0% { transform: translateY(-60px); opacity: 0; } 70% { transform: translateY(4px); } 100% { transform: none; opacity: 1; } }
+.paket.unterwegs .paket-innen { animation: ruckeln .35s ease-in-out 4; }
+@keyframes ruckeln { 50% { transform: translateY(-3px) rotate(-1.5deg); } }
+.paket .leuchte { opacity: 0; }
+.paket.eskaliert .leuchte { opacity: 1; animation: blinken .9s steps(2, jump-none) infinite; }
+.paket.eskaliert .paket-kiste { fill: var(--rot); }
+.paket.eskaliert .paket-band { fill: #a8262b; }
+@keyframes blinken { 50% { opacity: .15; } }
+.paket .schlaf { opacity: 0; }
+.paket.ruht .schlaf { opacity: 1; animation: schweben 2.4s ease-in-out infinite; }
+.paket.ruht .paket-kiste { fill: #9a9184; }
+@keyframes schweben { 50% { transform: translateY(-5px); } }
+.paket.abgebrochen { opacity: .45; }
+.paket.gedimmt { opacity: .15; }
+
+/* --- Werkbänke ---------------------------------------------------------- */
+.bank { cursor: default; }
+.bank .lampe-licht { opacity: 0; transition: opacity .5s; }
+.bank.arbeitet .lampe-licht { opacity: .55; animation: flackern 3s ease-in-out infinite; }
+.bank.wartet .lampe-licht { opacity: .2; }
+@keyframes flackern { 50% { opacity: .4; } }
+.bank .tippen { opacity: 0; }
+.bank.arbeitet .tippen { opacity: 1; }
+.bank.arbeitet .tippen rect { animation: tippen .5s steps(2) infinite; }
+.bank.arbeitet .tippen rect:nth-child(2) { animation-delay: .25s; }
+@keyframes tippen { 50% { transform: translateY(-2px); } }
+.bank.ruht { opacity: .55; }
+
+/* --- Tooltip ------------------------------------------------------------ */
+.tooltip {
+  position: fixed;
+  z-index: 30;
+  pointer-events: none;
+  max-width: 280px;
+  padding: 8px 11px;
+  border-radius: 8px;
+  background: rgba(15, 18, 26, .94);
+  border: 1px solid rgba(255,255,255,.12);
+  color: #fff;
+  font-size: 13px;
+  line-height: 1.4;
+  box-shadow: 0 6px 20px rgba(0,0,0,.35);
+}
+.tooltip .tt-id { font-family: var(--mono); font-weight: 700; color: var(--gelb); }
+.tooltip .tt-leise { color: #aab1c2; }
+
+/* --- Infokarte ---------------------------------------------------------- */
+.schleier { position: fixed; inset: 0; z-index: 35; background: rgba(0,0,0,.35); }
+.karte {
+  position: fixed;
+  z-index: 40;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(460px, 100vw);
+  max-width: 100vw;
+  display: flex;
+  flex-direction: column;
+  background: var(--karte);
+  color: var(--karte-text);
+  box-shadow: -10px 0 40px rgba(0,0,0,.4);
+  transform: translateX(105%);
+  transition: transform .35s cubic-bezier(.3,.7,.3,1);
+}
+.karte.offen { transform: none; }
+.karte-kopf {
+  min-width: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 18px 20px 10px;
+  border-bottom: 1px dashed var(--linie);
+  background: repeating-linear-gradient(-45deg, #f2c94c 0 14px, #2a2a2a 14px 28px) top / 100% 6px no-repeat, var(--karte);
+}
+.karte-id { font-family: var(--mono); font-size: 26px; font-weight: 800; letter-spacing: 1px; margin-top: 4px; }
+.karte h2 { margin: 2px 0 0; font-size: 17px; font-weight: 600; }
+.schliessen {
+  flex: none;
+  width: 44px; height: 44px;
+  border: 0; border-radius: 10px;
+  background: transparent;
+  font-size: 28px; line-height: 1;
+  color: var(--karte-leise);
+  cursor: pointer;
+}
+.schliessen:hover, .schliessen:focus-visible { background: #ebe5d6; color: var(--karte-text); }
+.kopieren {
+  margin: 12px 20px 4px;
+  min-height: 44px;
+  padding: 10px 14px;
+  border: 1px solid #2a2a2a;
+  border-radius: 10px;
+  background: #2a2a2a;
+  color: #fff;
+  font-family: var(--mono);
+  font-size: 14px;
+  cursor: pointer;
+  text-align: left;
+}
+.kopieren:hover, .kopieren:focus-visible { background: #000; }
+.kopieren.ok { background: var(--gruen); border-color: var(--gruen); }
+.karte-inhalt { overflow-y: auto; overflow-x: hidden; overflow-wrap: anywhere; padding: 6px 20px 40px; font-size: 14px; line-height: 1.5; }
+.karte-inhalt h3 {
+  margin: 20px 0 8px;
+  font-size: 12px;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--karte-leise);
+}
+.chip {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 99px;
+  font-size: 12px;
+  font-weight: 700;
+  background: #e8e2d3;
+}
+.chip.aktiv { background: #d6ebff; color: #0b4a80; }
+.chip.fertig { background: #d8f3dc; color: #1d6b2e; }
+.chip.eskaliert { background: var(--rot); color: #fff; }
+.chip.pausiert, .chip.abgebrochen { background: #e1ddd3; color: #555; }
+
+.schritte { display: flex; gap: 4px; margin: 14px 0 4px; }
+.schritt { flex: 1; text-align: center; font-size: 11px; color: var(--karte-leise); }
+.schritt::before { content: ""; display: block; height: 6px; border-radius: 3px; margin-bottom: 5px; background: #e2dccd; }
+.schritt.erledigt::before { background: #9bc9a4; }
+.schritt.jetzt { color: var(--karte-text); font-weight: 700; }
+.schritt.jetzt::before { background: #2a2a2a; }
+.schritt.rot::before { background: var(--rot); }
+
+.eckdaten { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
+.eckdaten div { background: #fff; border: 1px solid var(--linie); border-radius: 10px; padding: 8px 10px; }
+.eckdaten b { display: block; font-size: 18px; }
+.eckdaten span { font-size: 11px; color: var(--karte-leise); }
+
+.alarm { margin-top: 14px; padding: 12px 14px; border-radius: 10px; background: #fde8e8; border-left: 5px solid var(--rot); }
+.alarm strong { color: #a01e23; }
+
+.liste { list-style: none; margin: 0; padding: 0; }
+.liste li { display: flex; gap: 8px; padding: 5px 0; border-bottom: 1px solid #eee8da; }
+.liste li:last-child { border-bottom: 0; }
+.haken { flex: none; width: 20px; text-align: center; font-weight: 800; }
+.haken.ja { color: var(--gruen); }
+.haken.nein { color: var(--rot); }
+.haken.offen { color: #b5ad9b; }
+.leer { color: var(--karte-leise); font-style: italic; }
+
+table.befunde { width: 100%; border-collapse: collapse; font-size: 13px; }
+table.befunde th, table.befunde td { padding: 5px 6px; text-align: left; border-bottom: 1px solid #eee8da; }
+table.befunde th { font-size: 11px; color: var(--karte-leise); font-weight: 600; }
+.b-zahl { font-weight: 800; color: var(--rot); }
+.k-zahl { color: var(--karte-leise); }
+
+details { margin: 6px 0; border: 1px solid var(--linie); border-radius: 10px; background: #fff; }
+summary { padding: 9px 12px; cursor: pointer; font-weight: 600; min-height: 44px; display: flex; align-items: center; }
+.md { padding: 0 14px 10px; font-size: 13px; }
+.md h4, .md h5, .md h6 { margin: 10px 0 4px; font-size: 13px; }
+.md ul { margin: 4px 0; padding-left: 18px; }
+.md p { margin: 6px 0; }
+.md code { font-family: var(--mono); font-size: 12px; background: #f1ece0; padding: 1px 4px; border-radius: 4px; }
+.md pre { font-family: var(--mono); font-size: 12px; background: #f1ece0; padding: 8px; border-radius: 6px; overflow-x: auto; }
+.md .cb { list-style: none; margin-left: -18px; }
+
+.verlauf { list-style: none; margin: 0; padding: 0 0 0 14px; border-left: 2px solid var(--linie); }
+.verlauf li { position: relative; padding: 3px 0 7px 8px; font-size: 13px; }
+.verlauf li::before { content: ""; position: absolute; left: -20px; top: 9px; width: 10px; height: 10px; border-radius: 50%; background: #c9c1ae; }
+.verlauf li.eskaliert::before { background: var(--rot); }
+.verlauf li.fertig::before, .verlauf li.commit::before { background: var(--gruen); }
+.verlauf time { color: var(--karte-leise); font-size: 11px; font-family: var(--mono); margin-right: 6px; }
+.pfad { font-family: var(--mono); font-size: 12px; word-break: break-all; color: var(--karte-leise); }
+
+@media (max-width: 600px) {
+  .karte { width: 100vw; }
+  .eckdaten { grid-template-columns: repeat(3, 1fr); }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+
+/* Werkstatt einklappbar, Bänke klickbar */
+.werkstatt-kopf { cursor: pointer; }
+.werkstatt-kopf:focus { outline: none; }
+.werkstatt-flaeche { fill: transparent; stroke: transparent; stroke-width: 2; stroke-dasharray: 6 5; }
+.werkstatt-kopf:hover .werkstatt-flaeche, .werkstatt-kopf:focus-visible .werkstatt-flaeche { stroke: #aab1c2; stroke-opacity: .6; }
+.bank.klickbar { cursor: pointer; }
+.bank.klickbar:focus { outline: none; }
+.bank-flaeche { stroke: transparent; stroke-width: 2; stroke-dasharray: 6 5; }
+.bank.klickbar:hover .bank-flaeche, .bank.klickbar:focus-visible .bank-flaeche { stroke: var(--gelb); stroke-opacity: .7; }
+
+/* Laufzeiten auf der Tafel */
+.tafel-paket { cursor: pointer; }
+.tafel-paket:focus { outline: none; }
+.tafel-paket-feld { fill: transparent; stroke: transparent; stroke-width: 1.5; stroke-dasharray: 4 4; }
+.tafel-paket:hover .tafel-paket-feld, .tafel-paket:focus-visible .tafel-paket-feld { stroke: var(--kreide); stroke-opacity: .7; }
+
+/* Infokarte einer Sitzung */
+.kopieren.klein { display: block; width: 100%; margin: 6px 0; font-size: 12.5px; overflow-wrap: anywhere; }
+.md.zitat { background: #fff; border: 1px solid var(--linie); border-radius: 10px; padding: 8px 12px; max-height: 260px; overflow-y: auto; }
+
+/* Abgeschaltete Prüfer: schwarzer Helm, blass, Schild „abgeschaltet“ */
+.arbeiter.schaltbar { cursor: pointer; }
+.arbeiter.schaltbar:focus { outline: none; }
+.arbeiter-flaeche { stroke: transparent; stroke-width: 2; stroke-dasharray: 6 5; }
+.arbeiter.schaltbar:hover .arbeiter-flaeche, .arbeiter.schaltbar:focus-visible .arbeiter-flaeche { stroke: var(--gelb); stroke-opacity: .8; }
+.arbeiter .aus-schild { opacity: 0; transition: opacity .3s; }
+.arbeiter.aus { opacity: .5; }
+.arbeiter.aus .helm { fill: #111318; }
+.arbeiter.aus .aus-schild { opacity: 1; }
+.arbeiter.aus .blase, .arbeiter.aus .pause-schild { opacity: 0; }
+.arbeiter.aus .arm, .arbeiter.aus .koerper { animation: none; }
