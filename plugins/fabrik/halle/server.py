@@ -87,7 +87,7 @@ def auftraege():
         except (OSError, json.JSONDecodeError):
             continue
         fab = datei.parent
-        todos_offen, todos_erledigt = zaehle_haken(lies(fab / "todos.md"))
+        todos_offen, todos_erledigt = zaehle_haken(lies(fab.parent / "todos.md"))
         backlog_offen, _ = zaehle_haken(lies(fab / "backlog.md"))
         kriterien = s.get("kriterien", [])
         ruht = minuten_seit(s.get("aktualisiert"))
@@ -476,7 +476,7 @@ def auftrag_details(aid):
     return {
         "status": status,
         "spec": lies(fab / "spec.md"),
-        "todos": lies(fab / "todos.md"),
+        "todos": lies(fab.parent / "todos.md"),
         "backlog": lies(fab / "backlog.md"),
         "freigabe": lies(fab / "freigabe.md"),
         "befunde": befunde,

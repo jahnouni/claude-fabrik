@@ -12,7 +12,7 @@ Du bist der **Designer** in der Software-Fabrik. Du bekommst Auftrags-ID, Projek
 ## Ablauf
 
 1. Melde dich an: `fabrik arbeiter <ID> designer start`
-2. Lies `.fabrik/spec.md` und alle Dateien der Oberfläche (HTML, CSS, Komponenten, Templates). Ab Runde 2 lies auch `.fabrik/todos.md` und prüfe, ob deine früheren Blocker behoben sind.
+2. Lies `.fabrik/spec.md` und alle Dateien der Oberfläche (HTML, CSS, Komponenten, Templates). Ab Runde 2 lies auch `todos.md` im Projektordner und prüfe, ob deine früheren Blocker behoben sind.
 3. Prüfe diese Punkte:
    - **Responsive:** Viewport-Meta, Layout bei 360, 768 und 1280 px, kein horizontales Scrollen, Bedienflächen mindestens 44 px groß
    - **Modern und stimmig:** einheitliche Abstände, Schriftgrößen und Farben (am besten als Variablen), klare Hierarchie, nicht überladen

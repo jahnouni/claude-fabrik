@@ -258,7 +258,8 @@ def cmd_neu(a):
         "aktualisiert": jetzt(),
     }
     schreibe_json(pfad / ".fabrik" / "status.json", status)
-    (pfad / ".fabrik" / "todos.md").write_text("# Todos\n")
+    (pfad / "todos.md").write_text("# Todos\n")
+    (pfad / "roadmap.md").write_text("# Roadmap\n")
     (pfad / ".fabrik" / "backlog.md").write_text("# Backlog\n")
     (pfad / ".gitignore").write_text(GITIGNORE)
     git(pfad, "init", "-q", "-b", "main")
@@ -417,11 +418,13 @@ def cmd_neue_version(a):
         fab = pfad / ".fabrik"
         archiv = fab / "archiv" / f"v{s['version']}-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
         archiv.mkdir(parents=True)
-        for name in ("befunde", "todos.md", "freigabe.md"):
+        for name in ("befunde", "freigabe.md"):
             if (fab / name).exists():
                 os.replace(fab / name, archiv / name)
+        if (pfad / "todos.md").exists():
+            os.replace(pfad / "todos.md", archiv / "todos.md")
         (fab / "befunde").mkdir()
-        (fab / "todos.md").write_text("# Todos\n")
+        (pfad / "todos.md").write_text("# Todos\n")
         s.update(status="aktiv", station="bau", runde=0, befunde={}, eskalation=None, aktive_arbeiter=[])
         for k in s["kriterien"]:
             k["erfuellt"] = None

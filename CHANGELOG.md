@@ -2,6 +2,8 @@
 
 ## 0.3.0 – 2026-10-28
 
+- Jedes Projekt hat zwei Dateien im Projektwurzelordner, die alle Arbeiter sehen: `todos.md` für alle Aufgaben aus Prüfungen und Gesprächen, `roadmap.md` für alle Phasen des Projekts mit den Features je Phase. `todos.md` wandert damit aus `.fabrik/` in den Projektordner. Der Spec-Arbeiter legt die Roadmap an, der Orchestrator hakt nach der Freigabe die fertigen Features ab.
+- `fabrik neue-version` archiviert die `todos.md` und setzt sie zurück, die `roadmap.md` bleibt erhalten.
 - Update-Hinweis: Neuer Befehl `fabrik update` vergleicht die installierte Version mit dem neuesten Release auf GitHub (`jahnouni/claude-fabrik`) und liefert `installiert`, `neueste`, `update_verfuegbar` und `befehl` als JSON. Abgefragt wird höchstens alle 6 Stunden, das Ergebnis liegt in `~/.claude/fabrik/update.json`. Ohne Netz oder bei Fehlern gibt es still keinen Hinweis.
 - `/fabrik` meldet beim Start in einer Zeile „Update <Version> verfügbar“ mit dem Befehl zum Aktualisieren.
 - Halle: dezentes, schließbares Banner oben rechts mit neuer Version und kopierbarem Befehl. Die Abfrage läuft im Hintergrund, die Halle wartet nie darauf.

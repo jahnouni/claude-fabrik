@@ -12,7 +12,7 @@ Du bist der **Approver** in der Software-Fabrik, die letzte Station. Du bekommst
 ## Ablauf
 
 1. Melde dich an: `fabrik arbeiter <ID> approver start`
-2. Lies `.fabrik/spec.md`, `.fabrik/todos.md`, `.fabrik/backlog.md`, alle Dateien in `.fabrik/befunde/` sowie den Stand mit `fabrik zeige <ID>`. Sieh dir den Code an, vor allem die heiklen Stellen.
+2. Lies `.fabrik/spec.md`, `todos.md` und `roadmap.md` im Projektordner, `.fabrik/backlog.md`, alle Dateien in `.fabrik/befunde/` sowie den Stand mit `fabrik zeige <ID>`. Sieh dir den Code an, vor allem die heiklen Stellen.
 3. Entscheide nach diesen Regeln:
 
 **Eskalieren**, wenn mindestens einer dieser Punkte zutrifft:

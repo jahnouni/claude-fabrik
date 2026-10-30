@@ -47,6 +47,24 @@ Du bist der **Spec-Arbeiter** in der Software-Fabrik. Du bekommst eine Auftrags-
 - …
 ```
 
+3b. Schreibe `<PFAD>/roadmap.md` (im Projektordner, nicht in `.fabrik/`). Der Aufbau:
+
+```
+# Roadmap
+
+## Phase 0: <Thema, z. B. Server vorbereiten, Login, Dashboard>
+- [ ] <Feature>: <kurze, konkrete Beschreibung>
+- [ ] <Feature>: …
+
+## Phase 1: <Thema, z. B. Rechnungen erstellen, Angebote>
+- [ ] …
+```
+
+   - Die Phasen beschreiben das ganze Projekt, nicht nur diese Version. Phase 0 ist das Grundgerüst, danach folgen die Ausbaustufen in sinnvoller Reihenfolge.
+   - Jedes Feature wird in genau einer Phase geführt und möglichst konkret benannt.
+   - Diese Version umfasst die Features der ersten Phasen. Was danach kommt, bleibt in den späteren Phasen stehen.
+   - Die Abnahmekriterien aus `spec.md` müssen sich auf Features der Roadmap zurückführen lassen.
+
 4. Übernimm die Kriterien und die Einordnung:
    - `fabrik kriterien <ID>`
    - `fabrik setze <ID> hat_ui=true|false 'sensibel=["zahlung"]'` (leere Liste `[]`, wenn nichts zutrifft)
