@@ -1,6 +1,6 @@
 {
   "name": "fabrik",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Software-Fabrik: /fabrik schickt einen Wunsch durch Spec, Bau, Prüfrunden und Freigabe. Sicherheit, Code, Bedienung und Design werden von eigenen Prüfern kontrolliert, heikle Fälle eskalieren an einen Menschen. Mit Fabrikhalle im Browser.",
   "author": {
     "name": "R3DA"

@@ -116,9 +116,10 @@ Lies `fabrik zeige <ID>` und die Pfadangabe. Räum hängengebliebene Arbeiter au
 - Abgeschaltete Prüfer (`fabrik rollen`) laufen nicht, auch nicht „ausnahmsweise“. Wenn ihre Prüfung wichtig wäre, etwa der Bediener bei neuen Abnahmekriterien, sag es dem Nutzer und überlass ihm das Einschalten. Ist der Bediener aus, prüft niemand die Abnahmekriterien: Gib in Zwischenstand und Abschlussbericht „Kriterien nicht geprüft (Bediener aus)“ an.
 - Halte den Stand immer über `fabrik` aktuell, bevor ein Arbeiter startet. Die Halle zeigt nur, was dort steht.
 - Gib jedem Arbeiter ID, Pfad und Runde mit. Mehr brauchen sie nicht, alles andere steht in `.fabrik/` und im Projektordner.
-- **Zwei Dateien im Projektwurzelordner, in jedem Projekt, für alle Arbeiter sichtbar:**
+- **Drei Dateien im Projektwurzelordner, in jedem Projekt, für alle Arbeiter sichtbar:**
   - `todos.md` sammelt alle Aufgaben, die während einer Prüfung oder eines Gesprächs mit dem Nutzer aufkommen, als `- [ ] <Text>`. Aufgaben aus dem Gespräch trägst du sofort ein, bevor du weitermachst.
   - `roadmap.md` zeigt alle Phasen des Projekts und welche Features zu welcher Phase gehören. Der Spec-Arbeiter legt sie an, du hakst die fertigen Features ab.
+  - `changelog.md` führt die Historie: je Version, was hinzugefügt, geändert, behoben oder entfernt wurde. Der Approver schreibt den Eintrag vor dem Commit, `fabrik commit` ergänzt ihn aus der Commit-Nachricht, falls er fehlt. Die Datei bleibt so aktuell wie die Commits und Releases.
 - Keine KI-Zuschreibungen, nirgends. Commits nur über `fabrik commit` nach Freigabe. **Niemals pushen**, außer der Nutzer verlangt es ausdrücklich.
 - `fabrik fertig` ohne `--mensch` ist gesperrt, solange in der letzten Runde Blocker stehen oder das Projekt sensibel ist. Benutze `--mensch` **nur**, wenn der Nutzer in dieser Sitzung ausdrücklich „freigeben“ gewählt hat.
 - Bricht ein Arbeiter mit Fehler ab, starte ihn einmal neu. Scheitert er erneut, `fabrik setze <ID> status=pausiert`, sag dem Nutzer Bescheid und halte an.

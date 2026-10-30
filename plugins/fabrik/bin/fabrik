@@ -260,6 +260,7 @@ def cmd_neu(a):
     schreibe_json(pfad / ".fabrik" / "status.json", status)
     (pfad / "todos.md").write_text("# Todos\n")
     (pfad / "roadmap.md").write_text("# Roadmap\n")
+    (pfad / "changelog.md").write_text("# Changelog\n\nWas in welcher Version hinzugefügt, geändert, behoben oder entfernt wurde. Neueste Version oben.\n")
     (pfad / ".fabrik" / "backlog.md").write_text("# Backlog\n")
     (pfad / ".gitignore").write_text(GITIGNORE)
     git(pfad, "init", "-q", "-b", "main")
@@ -392,6 +393,21 @@ def cmd_fertig(a):
     ereignis(pfad, "fertig", "Vom Menschen freigegeben" if a.mensch else "Freigegeben", None if a.mensch else "approver")
 
 
+def sichere_changelog(pfad, version, nachricht):
+    """Trägt die Version in changelog.md ein, falls der Approver sie nicht schon ausführlich geschrieben hat."""
+    datei = pfad / "changelog.md"
+    text = datei.read_text() if datei.exists() else "# Changelog\n"
+    if f"## Version {version} " in text:
+        return
+    eintrag = f"## Version {version} – {datetime.now():%Y-%m-%d}\n\n- {nachricht}\n\n"
+    stelle = text.find("\n## ")
+    if stelle == -1:
+        text = text.rstrip("\n") + "\n\n" + eintrag
+    else:
+        text = text[: stelle + 1] + eintrag + text[stelle + 1 :]
+    datei.write_text(text)
+
+
 def cmd_commit(a):
     with auftrag(a.id) as (s, pfad):
         if s["status"] != "fertig":
@@ -402,6 +418,8 @@ def cmd_commit(a):
             return
         s["version"] += 1
         nachricht = a.nachricht or f"{s['id']}: {s['titel']} (Version {s['version']})"
+        sichere_changelog(pfad, s["version"], nachricht)
+        git(pfad, "add", "-A")
         r = git(pfad, "commit", "-q", "-m", nachricht)
         if r.returncode:
             s["version"] -= 1

@@ -44,7 +44,7 @@ Du bist der **Approver** in der Software-Fabrik, die letzte Station. Du bekommst
 ```
 
 5. Führe die Entscheidung aus:
-   - **freigegeben:** `fabrik fertig <ID>` und danach `fabrik commit <ID>`. Lehnt `fertig` die Freigabe ab (offene Blocker oder sensibel), eskalierst du stattdessen. Benutze niemals `--mensch`, das ist allein dem Nutzer vorbehalten.
+   - **freigegeben:** Zuerst trägst du in `<PFAD>/changelog.md` ganz oben, unter dem Kopf, den Eintrag für die neue Version ein: `## Version <n> – <JJJJ-MM-TT>`, mit `<n>` = Version aus `fabrik zeige <ID>` plus 1. Darunter die Gruppen **Hinzugefügt**, **Geändert**, **Behoben** und **Entfernt**, je Punkt ein Satz, aus Spec, erledigten Todos und dem Freigabebericht. Leere Gruppen lässt du weg. Danach `fabrik fertig <ID>` und `fabrik commit <ID>`. Lehnt `fertig` die Freigabe ab (offene Blocker oder sensibel), eskalierst du stattdessen. Benutze niemals `--mensch`, das ist allein dem Nutzer vorbehalten.
    - **eskaliert:** `fabrik eskaliere <ID> --grund "<ein Satz>" --bereiche <z. B. zahlung,zugangsdaten>`. Nicht committen.
 6. Melde dich ab: `fabrik arbeiter <ID> approver ende`
 7. Antworte dem Orchestrator kurz mit der Entscheidung, den Bereichen, der Begründung und bei Freigabe dem Commit-Hash.

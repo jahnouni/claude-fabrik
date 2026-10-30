@@ -1,5 +1,10 @@
 # Änderungen
 
+## 0.3.1 – 2026-10-30
+
+- Neue Datei `changelog.md` in jedem Projekt im Projektwurzelordner: eine Historie, was in welcher Version hinzugefügt, geändert, behoben oder entfernt wurde. Neueste Version oben.
+- Der Approver schreibt den Eintrag der Version vor dem Commit. `fabrik commit` ergänzt ihn aus der Commit-Nachricht, falls er fehlt, so bleibt die Datei wie die Commits und Releases aktuell.
+
 ## 0.3.0 – 2026-10-28
 
 - Jedes Projekt hat zwei Dateien im Projektwurzelordner, die alle Arbeiter sehen: `todos.md` für alle Aufgaben aus Prüfungen und Gesprächen, `roadmap.md` für alle Phasen des Projekts mit den Features je Phase. `todos.md` wandert damit aus `.fabrik/` in den Projektordner. Der Spec-Arbeiter legt die Roadmap an, der Orchestrator hakt nach der Freigabe die fertigen Features ab.
