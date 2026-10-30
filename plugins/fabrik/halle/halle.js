@@ -634,7 +634,7 @@ function aktualisiereWerkbaenke(sitzungen) {
     }
     // Ohne erkennbares Projekt steht nur ein Platzhalter da, der tritt dezent zurück.
     el("text", { x: 72, y: 16, "text-anchor": "middle", "font-size": s.dezent ? 11 : 13, "font-weight": s.dezent ? 400 : 600,
-      fill: s.dezent ? "#8b93a7" : "#d9deea", class: s.dezent ? "bank-name dezent" : "bank-name",
+      fill: s.dezent ? "#aab2c4" : "#d9deea", class: s.dezent ? "bank-name dezent" : "bank-name",
       "font-family": "-apple-system, Helvetica, Arial, sans-serif" }, g)
       .textContent = kurz(s.projekt, 18);
     const zust = { arbeitet: "arbeitet", wartet: "wartet", ruht: "zuletzt " + new Date(s.seit).toLocaleDateString("de-DE") }[s.zustand];
